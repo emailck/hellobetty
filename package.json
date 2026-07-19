@@ -1,0 +1,24 @@
+{
+  "name": "hellobetty",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,admin,mobile -c cyan,green,magenta \"npm run dev -w @hellobetty/api\" \"npm run dev -w @hellobetty/admin\" \"npm run web -w @hellobetty/mobile -- --non-interactive\"",
+    "dev:api": "npm run dev -w @hellobetty/api",
+    "dev:admin": "npm run dev -w @hellobetty/admin",
+    "dev:mobile": "npm run web -w @hellobetty/mobile",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

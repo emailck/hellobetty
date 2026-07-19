@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.expo/
+dist/
+coverage/
+*.log
+.env
+.env.local
+services/api/prisma/*.db
+services/api/prisma/*.db-journal
+services/api/data/
+
+.logs/
+*.tsbuildinfo
