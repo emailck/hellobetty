@@ -215,6 +215,15 @@ describe("learning statistics", () => {
       checkinDate: "2026-07-14",
       homeworkSeconds: 7200,
     });
+    expect(stats.recentDays).toEqual([
+      { checkinDate: "2026-07-08", voiceSeconds: 0, homeworkSeconds: 0 },
+      { checkinDate: "2026-07-09", voiceSeconds: 0, homeworkSeconds: 0 },
+      { checkinDate: "2026-07-10", voiceSeconds: 0, homeworkSeconds: 0 },
+      { checkinDate: "2026-07-11", voiceSeconds: 0, homeworkSeconds: 0 },
+      { checkinDate: "2026-07-12", voiceSeconds: 0, homeworkSeconds: 0 },
+      { checkinDate: "2026-07-13", voiceSeconds: 0, homeworkSeconds: 0 },
+      { checkinDate: "2026-07-14", voiceSeconds: 0, homeworkSeconds: 7200 },
+    ]);
 
     const missing = await app.inject({
       method: "POST",
@@ -234,8 +243,42 @@ describe("learning statistics", () => {
     expect(store.getLearningStats(otherStudent.id).summary.checkinDays).toBe(0);
   });
 
+  it("rejects completing an active learning session after homework is paused", async () => {
+    const { student, teacher, studentToken } = await createUsers();
+    const homework = store.createPublishedHomework({
+      publisherId: teacher.id,
+      title: "Pause before completion",
+      studentIds: [student.id],
+      templateType: "SENTENCE_READ_ALOUD",
+      items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/practice.mp3" }],
+      schedule: schedule("2026-07-01T00:00:00.000Z"),
+    });
+    const occurrence = store.listStudentPracticeOccurrences(student.id)[0];
+    const session = store.startHomeworkSession({
+      occurrenceId: occurrence.id,
+      studentId: student.id,
+      now: new Date("2026-07-13T16:30:00.000Z"),
+    });
+    store.updateHomeworkStatus({ homeworkId: homework.id, status: "PAUSED" });
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/student/homework-sessions/${session.id}/complete`,
+      headers: { authorization: `Bearer ${studentToken}` },
+    });
+    expect(rejected.statusCode).toBe(404);
+    expect(rejected.json().code).toBe("SESSION_NOT_FOUND");
+    expect(store.getLearningStats(student.id).summary.homeworkSeconds).toBe(0);
+  });
+
   it("allows staff to read only active student statistics", async () => {
     const { student, otherStudentToken, teacher, teacherToken } = await createUsers();
+    store.createClassroom({
+      creatorId: teacher.id,
+      name: "Stats class",
+      teacherIds: [teacher.id],
+      studentIds: [student.id],
+    });
     const disabled = store.createUser({
       phone: "13800138000",
       displayName: "Disabled",
@@ -257,10 +300,11 @@ describe("learning statistics", () => {
       headers: { authorization: `Bearer ${teacherToken}` },
     });
     expect(allowed.statusCode).toBe(200);
-    expect(allowed.json()).toEqual({
+    expect(allowed.json()).toMatchObject({
       summary: { checkinDays: 0, currentStreak: 0, voiceSeconds: 0, homeworkSeconds: 0 },
       checkins: [],
     });
+    expect(allowed.json().recentDays).toHaveLength(7);
 
     for (const invalidStudentId of [disabled.id, teacher.id, "missing-student"]) {
       const response = await app.inject({

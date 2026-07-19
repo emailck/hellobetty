@@ -11,6 +11,7 @@ export interface PictureBookDraftCard {
 }
 
 export interface PictureBookPublishDraft {
+  classroomId: string | null;
   title: string;
   instructions: string;
   cards: PictureBookDraftCard[];
@@ -27,6 +28,7 @@ export interface HomeworkDraftItem extends PictureBookDraftCard {
 }
 
 export interface HomeworkPublishDraft {
+  classroomId: string | null;
   templateType: HomeworkTemplateType;
   title: string;
   instructions: string;
@@ -52,6 +54,7 @@ export async function loadHomeworkDraft(userId: string) {
       const draft = JSON.parse(stored) as HomeworkPublishDraft;
       return {
         ...draft,
+        classroomId: draft.classroomId ?? null,
         items: draft.items.map((item) => ({ ...item, referenceText: item.referenceText ?? "" })),
       };
     } catch {
@@ -63,6 +66,7 @@ export async function loadHomeworkDraft(userId: string) {
   if (!legacy) return null;
   return {
     templateType: "READ_ALOUD_PICTURE_BOOK",
+    classroomId: legacy.classroomId ?? null,
     title: legacy.title,
     instructions: legacy.instructions,
     items: legacy.cards.map((card) => ({ ...card, referenceText: card.referenceText ?? "", promptText: "", answerText: "", choicesText: "" })),
@@ -88,6 +92,7 @@ export async function loadPictureBookDraft(userId: string) {
     const draft = JSON.parse(stored) as PictureBookPublishDraft;
     return {
       ...draft,
+      classroomId: draft.classroomId ?? null,
       cards: draft.cards.map((card) => ({ ...card, referenceText: card.referenceText ?? "" })),
     };
   } catch {

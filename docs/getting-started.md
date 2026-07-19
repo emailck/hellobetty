@@ -12,14 +12,14 @@ npm install
 npm run db:seed -w @hellobetty/api
 npm run dev:api
 npm run dev:admin
-npm run dev:mobile -- --port 8083
+npm run web -w @hellobetty/mobile -- --port 8083
 ```
 
 Start the three commands in separate terminals. Default local addresses:
 
 - API health check: `http://localhost:4100/health`
 - Web management console: `http://localhost:3000/login`
-- Mobile web preview: Expo selects an available port, normally `http://localhost:8081`
+- Mobile web preview: `http://localhost:8083`
 
 When a default port is occupied, choose another free port such as `3001` for the admin console and `8083` for the mobile preview.
 
@@ -38,5 +38,5 @@ Copy `services/api/.env.example` to `services/api/.env` before running outside l
 ```bash
 npm run typecheck
 npm test
-npm run build -w @hellobetty/admin
+npm run build
 ```

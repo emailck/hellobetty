@@ -12,8 +12,8 @@ export async function POST(request: Request) {
   });
   const body = await upstream.json();
   if (!upstream.ok) return NextResponse.json(body, { status: upstream.status });
-  if (body.user?.role !== "ADMIN") {
-    return NextResponse.json({ code: "FORBIDDEN", message: "当前账号没有管理权限" }, { status: 403 });
+  if (!(["ADMIN", "TEACHER"].includes(body.user?.role))) {
+    return NextResponse.json({ code: "FORBIDDEN", message: "当前账号没有老师管理权限" }, { status: 403 });
   }
   const response = NextResponse.json({ user: body.user });
   response.cookies.set("hb_admin_token", body.token, {

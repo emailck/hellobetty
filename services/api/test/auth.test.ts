@@ -88,6 +88,7 @@ describe("account flow", () => {
         password: "Practice123",
       },
     });
+    const registeredStudent = studentRegister.json().user;
     const studentToken = studentRegister.json().token;
 
     const forbidden = await app.inject({
@@ -102,6 +103,12 @@ describe("account flow", () => {
       displayName: "Teacher",
       passwordHash: await hashPassword("AdminPass123"),
       role: USER_ROLES.TEACHER,
+    });
+    store.createClassroom({
+      creatorId: teacher.id,
+      name: "Teacher class",
+      teacherIds: [teacher.id],
+      studentIds: [registeredStudent.id],
     });
     const teacherToken = app.jwt.sign({ sub: teacher.id, role: teacher.role });
     const list = await app.inject({
@@ -237,16 +244,19 @@ describe("account flow", () => {
     const firstSubmission = store.listReadAloudSubmissions().find(
       (submission) => submission.cardPosition === 1,
     )!;
+    const feedbackUrl = "/uploads/feedback/00000000-0000-4000-8000-000000000001.m4a";
+    store.registerFeedbackUpload({ url: feedbackUrl, uploaderId: admin.id });
     store.reviewReadingSubmission({
       submissionId: firstSubmission.id,
       grade: "A",
-      feedbackAudioUrl: "/uploads/assets/teacher-feedback.m4a",
+      feedbackAudioUrl: feedbackUrl,
+      scope: { userId: admin.id, role: admin.role },
     });
     const afterReview = store.getStudentReadingOccurrence(occurrenceId, student.id);
     expect(afterReview.cards[0]).toMatchObject({
       status: "GRADED",
       grade: "A",
-      feedbackAudioUrl: "/uploads/assets/teacher-feedback.m4a",
+      feedbackAudioUrl: "/uploads/feedback/00000000-0000-4000-8000-000000000001.m4a",
     });
     expect(store.getHomeworkOccurrenceCount(homework.id)).toBe(1);
   });

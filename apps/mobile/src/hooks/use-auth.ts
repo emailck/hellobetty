@@ -27,9 +27,17 @@ export function useAuth() {
     setSession(nextSession);
   }
 
+  async function updateCurrentUser(user: Session["user"]) {
+    if (!session) return;
+    const nextSession = { ...session, user };
+    await saveSession(nextSession);
+    setSession(nextSession);
+  }
+
   return {
     session,
     isRestoring,
+    updateCurrentUser,
     register: async (input: {
       phone: string;
       displayName: string;

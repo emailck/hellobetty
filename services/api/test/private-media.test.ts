@@ -25,6 +25,23 @@ afterAll(async () => {
   createdFiles.forEach((file) => rmSync(file, { force: true }));
 });
 
+
+function feedbackMultipart() {
+  const boundary = "hellobetty-feedback-boundary";
+  return {
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.from(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="purpose"\r\n\r\n` +
+      `FEEDBACK\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="feedback.webm"\r\n` +
+      `Content-Type: audio/webm\r\n\r\n` +
+      `teacher-feedback\r\n--${boundary}--\r\n`,
+    ),
+  };
+}
+
 describe("private recording media", () => {
   it("requires ownership or an active staff account and supports byte ranges", async () => {
     const student = store.createUser({
@@ -42,6 +59,12 @@ describe("private recording media", () => {
     const teacher = store.createUser({
       phone: "13600136000",
       displayName: "Ms. Lin",
+      passwordHash: await hashPassword("TeacherPass123"),
+      role: USER_ROLES.TEACHER,
+    });
+    const otherTeacher = store.createUser({
+      phone: "13700137000",
+      displayName: "Ms. Wu",
       passwordHash: await hashPassword("TeacherPass123"),
       role: USER_ROLES.TEACHER,
     });
@@ -69,6 +92,74 @@ describe("private recording media", () => {
       studentId: student.id,
       audioUrl,
     });
+    const submission = store.listPracticeRecordingSubmissions()[0];
+    const teacherToken = app.jwt.sign({ sub: teacher.id, role: teacher.role });
+    const otherTeacherToken = app.jwt.sign({ sub: otherTeacher.id, role: otherTeacher.role });
+    const otherFeedbackUpload = await app.inject({
+      method: "POST",
+      url: "/api/admin/uploads",
+      headers: { authorization: `Bearer ${otherTeacherToken}`, ...feedbackMultipart().headers },
+      payload: feedbackMultipart().payload,
+    });
+    expect(otherFeedbackUpload.statusCode).toBe(201);
+    const crossUploaderReview = await app.inject({
+      method: "POST",
+      url: `/api/admin/practice-recording-submissions/${submission.id}/review`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+      payload: { grade: "A", feedbackAudioUrl: otherFeedbackUpload.json().url },
+    });
+    expect(crossUploaderReview.statusCode).toBe(400);
+
+    const missingUploadReview = await app.inject({
+      method: "POST",
+      url: `/api/admin/practice-recording-submissions/${submission.id}/review`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+      payload: { grade: "A", feedbackAudioUrl: `/uploads/feedback/${randomUUID()}.webm` },
+    });
+    expect(missingUploadReview.statusCode).toBe(400);
+
+    const feedbackUpload = await app.inject({
+      method: "POST",
+      url: "/api/admin/uploads",
+      headers: { authorization: `Bearer ${teacherToken}`, ...feedbackMultipart().headers },
+      payload: feedbackMultipart().payload,
+    });
+    expect(feedbackUpload.statusCode).toBe(201);
+    expect(feedbackUpload.json()).toMatchObject({ kind: "audio", purpose: "FEEDBACK" });
+    expect(feedbackUpload.json().url).toMatch(/^\/uploads\/feedback\//);
+    const firstReview = await app.inject({
+      method: "POST",
+      url: `/api/admin/practice-recording-submissions/${submission.id}/review`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+      payload: { grade: "A", feedbackAudioUrl: feedbackUpload.json().url },
+    });
+    expect(firstReview.statusCode).toBe(200);
+    const repeatedReview = await app.inject({
+      method: "POST",
+      url: `/api/admin/practice-recording-submissions/${submission.id}/review`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+      payload: { grade: "B" },
+    });
+    expect(repeatedReview.statusCode).toBe(200);
+    expect(repeatedReview.json().submission).toMatchObject({
+      grade: "B",
+      feedbackAudioUrl: feedbackUpload.json().url,
+    });
+
+    store.submitPracticeRecording({
+      occurrenceId,
+      itemId: item.id,
+      studentId: student.id,
+      audioUrl: `/uploads/submissions/${randomUUID()}.webm`,
+    });
+    const secondSubmission = store.listPracticeRecordingSubmissions()[0];
+    const crossSubmissionReview = await app.inject({
+      method: "POST",
+      url: `/api/admin/practice-recording-submissions/${secondSubmission.id}/review`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+      payload: { grade: "A", feedbackAudioUrl: feedbackUpload.json().url },
+    });
+    expect(crossSubmissionReview.statusCode).toBe(400);
     const filePath = resolve(config.uploadsPath, "submissions", filename);
     mkdirSync(resolve(config.uploadsPath, "submissions"), { recursive: true });
     writeFileSync(filePath, Buffer.from("private-audio"));
@@ -107,5 +198,27 @@ describe("private recording media", () => {
     });
     expect(staff.statusCode).toBe(200);
     expect(staff.rawPayload.toString()).toBe("private-audio");
+
+    const feedbackAnonymous = await app.inject({ method: "GET", url: feedbackUpload.json().url });
+    expect(feedbackAnonymous.statusCode).toBe(401);
+    const feedbackOtherStudent = await app.inject({
+      method: "GET",
+      url: feedbackUpload.json().url,
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: otherStudent.id, role: otherStudent.role })}` },
+    });
+    expect(feedbackOtherStudent.statusCode).toBe(404);
+    const feedbackStudent = await app.inject({
+      method: "GET",
+      url: feedbackUpload.json().url,
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: student.id, role: student.role })}` },
+    });
+    expect(feedbackStudent.statusCode).toBe(200);
+    expect(feedbackStudent.rawPayload.toString()).toBe("teacher-feedback");
+    const feedbackOtherTeacher = await app.inject({
+      method: "GET",
+      url: feedbackUpload.json().url,
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: otherTeacher.id, role: otherTeacher.role })}` },
+    });
+    expect(feedbackOtherTeacher.statusCode).toBe(404);
   });
 });

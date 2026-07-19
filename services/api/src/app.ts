@@ -45,7 +45,7 @@ export async function buildApp(
   app.get("/health", async () => ({ status: "ok" }));
   await app.register(createMediaRoutes(store));
   await app.register(createAuthRoutes(store), { prefix: "/api/auth" });
-  await app.register(createAdminRoutes(store), { prefix: "/api/admin" });
+  await app.register(createAdminRoutes(store, { speechAssessmentProvider: options.speechAssessmentProvider ?? null }), { prefix: "/api/admin" });
   await app.register(createStudentRoutes(store), { prefix: "/api/student" });
   speechAssessmentWorker.start();
   app.addHook("onClose", async () => {

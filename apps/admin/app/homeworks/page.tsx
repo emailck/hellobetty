@@ -4,19 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  BookOpen,
   Check,
   CheckCircle2,
   CheckSquare,
   Clock3,
   FileAudio,
-  LayoutDashboard,
-  LogOut,
   Mic,
+  Archive,
+  Pause,
+  Play,
   Square,
-  Users,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { ConsoleShell } from "../_components/console-shell";
 
 type TemplateType =
   | "STANDARD"
@@ -34,18 +34,45 @@ interface Student {
   id: string;
   displayName: string;
   phone: string;
+  role?: string;
+  status?: string;
+}
+
+interface UserListResponse {
+  users: Student[];
+  pagination?: { total?: number };
+}
+
+interface Classroom {
+  id: string;
+  name: string;
+  status: string;
+  teachers: Student[];
+  students: Student[];
+}
+
+interface AdminContext {
+  user: {
+    id: string;
+    displayName: string;
+    role: "ADMIN" | "TEACHER";
+  };
+  speechAssessment: { configured: boolean; provider: string | null };
 }
 
 interface Homework {
   id: string;
   title: string;
   status: string;
+  classroomId?: string | null;
+  classroomName?: string | null;
   startsAt: string;
   repeatUnit: "DAY" | "WEEK";
   repeatInterval: number;
   occurrenceLimit: number;
   targetCount: number;
   occurrenceCount: number;
+  completedOccurrenceCount?: number;
   templateType: TemplateType;
 }
 
@@ -222,8 +249,16 @@ function AssessmentSummary({ assessment }: { assessment: SpeechAssessment | null
   </div>;
 }
 
+function dedupeStudents(users: Student[]) {
+  return Array.from(new Map(users.map((user) => [user.id, user])).values())
+    .filter((user) => !user.role || user.role === "STUDENT");
+}
+
 export default function HomeworkPage() {
   const router = useRouter();
+  const [context, setContext] = useState<AdminContext | null>(null);
+  const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+  const [selectedClassroomId, setSelectedClassroomId] = useState("");
   const [students, setStudents] = useState<Student[]>([]);
   const [homeworks, setHomeworks] = useState<Homework[]>([]);
   const [submissions, setSubmissions] = useState<RecordingSubmission[]>([]);
@@ -251,6 +286,13 @@ export default function HomeworkPage() {
 
   const selectedCount = selectedIds.length;
   const totalOccurrences = selectedCount * occurrenceLimit;
+  const isTeacher = context?.user.role === "TEACHER";
+  const activeClassrooms = useMemo(() => classrooms.filter((classroom) => classroom.status === "ACTIVE"), [classrooms]);
+  const selectedClassroom = classrooms.find((classroom) => classroom.id === selectedClassroomId) ?? null;
+  const selectableStudents = useMemo(() => {
+    if (selectedClassroom) return selectedClassroom.students.filter((student) => student.status !== "DISABLED");
+    return isTeacher ? [] : students.filter((student) => student.status !== "DISABLED");
+  }, [isTeacher, selectedClassroom, students]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const visibleSubmissions = useMemo(
     () => submissions.filter((submission) => submission.status === reviewFilter),
@@ -283,20 +325,56 @@ export default function HomeworkPage() {
     ]);
   };
 
+  const loadAllStudents = async () => {
+    const pageSize = 100;
+    const loadPage = async (page: number) => {
+      const response = await fetch(`/api/admin/users?page=${page}&pageSize=${pageSize}&role=STUDENT`);
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/login");
+        throw new Error("请重新登录");
+      }
+      const body = await response.json() as UserListResponse & { message?: string };
+      if (!response.ok) throw new Error(body.message ?? "无法加载学生列表");
+      return body;
+    };
+
+    const firstPage = await loadPage(1);
+    const firstUsers = firstPage.users ?? [];
+    const total = firstPage.pagination?.total ?? firstUsers.length;
+    const pageCount = Math.ceil(total / pageSize);
+    if (pageCount <= 1) return dedupeStudents(firstUsers);
+
+    const remainingPages = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => loadPage(index + 2)));
+    return dedupeStudents([...firstUsers, ...remainingPages.flatMap((page) => page.users ?? [])]);
+  };
+
   const loadData = async () => {
-    const [studentsResponse, homeworksResponse] = await Promise.all([
-      fetch("/api/admin/users?page=1&pageSize=100"),
+    const [contextResponse, classroomsResponse, homeworksResponse] = await Promise.all([
+      fetch("/api/admin/context"),
+      fetch("/api/admin/classrooms"),
       fetch("/api/admin/homeworks"),
     ]);
-    if ([studentsResponse, homeworksResponse].some((response) => response.status === 401 || response.status === 403)) {
+    if ([contextResponse, classroomsResponse, homeworksResponse].some((response) => response.status === 401 || response.status === 403)) {
       router.replace("/login");
       return;
     }
-    const studentsBody = await studentsResponse.json();
+    const contextBody = await contextResponse.json();
+    const classroomsBody = await classroomsResponse.json();
     const homeworksBody = await homeworksResponse.json();
-    if (!studentsResponse.ok) throw new Error(studentsBody.message ?? "无法加载学生列表");
+    if (!contextResponse.ok) throw new Error(contextBody.message ?? "无法加载管理会话");
+    if (!classroomsResponse.ok) throw new Error(classroomsBody.message ?? "无法加载班级列表");
     if (!homeworksResponse.ok) throw new Error(homeworksBody.message ?? "无法加载作业列表");
-    setStudents(studentsBody.users);
+    setContext(contextBody);
+    const nextClassrooms = classroomsBody.classrooms ?? [];
+    setClassrooms(nextClassrooms);
+    if (contextBody.user?.role === "TEACHER" && !selectedClassroomId) {
+      setSelectedClassroomId(nextClassrooms.find((classroom: Classroom) => classroom.status === "ACTIVE")?.id ?? "");
+    }
+    if (contextBody.user?.role === "ADMIN") {
+      setStudents(await loadAllStudents());
+    } else {
+      setStudents([]);
+    }
     setHomeworks(homeworksBody.homeworks);
     await loadSubmissions();
   };
@@ -304,6 +382,11 @@ export default function HomeworkPage() {
   useEffect(() => {
     void loadData().catch((cause) => setError(cause instanceof Error ? cause.message : "网络连接失败"));
   }, []);
+
+  useEffect(() => {
+    const allowedIds = new Set(selectableStudents.map((student) => student.id));
+    setSelectedIds((current) => current.filter((id) => allowedIds.has(id)));
+  }, [selectableStudents]);
 
   const hasPendingAssessments = visibleSubmissions.some(({ assessment }) =>
     assessment?.status === "QUEUED" || assessment?.status === "PROCESSING");
@@ -331,7 +414,7 @@ export default function HomeworkPage() {
   };
 
   const toggleAll = () => {
-    setSelectedIds(selectedIds.length === students.length ? [] : students.map((student) => student.id));
+    setSelectedIds(selectedIds.length === selectableStudents.length ? [] : selectableStudents.map((student) => student.id));
   };
 
   function selectTemplate(nextTemplate: TemplateType) {
@@ -396,6 +479,7 @@ export default function HomeworkPage() {
     setUploadingReviewId(submissionId);
     try {
       const formData = new FormData();
+      formData.append("purpose", "FEEDBACK");
       formData.append("file", file);
       const response = await fetch("/api/admin/uploads", { method: "POST", body: formData });
       if (response.status === 401 || response.status === 403) {
@@ -403,7 +487,7 @@ export default function HomeworkPage() {
         return;
       }
       const body = await response.json();
-      if (!response.ok || body.kind !== "audio") throw new Error("请选择音频文件");
+      if (!response.ok || body.kind !== "audio" || body.purpose !== "FEEDBACK") throw new Error("点评音频需要通过私有通道上传");
       setReviewAudioById((current) => ({ ...current, [submissionId]: body.url }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "点评音频上传失败");
@@ -482,10 +566,43 @@ export default function HomeworkPage() {
 
   const mediaUrl = (url: string) => `/api/admin/media/${url.replace(/^\/uploads\//, "")}`;
 
+  function homeworkStatusLabel(status: string) {
+    if (status === "PUBLISHED") return "发布中";
+    if (status === "PAUSED") return "已暂停";
+    if (status === "ARCHIVED") return "已归档";
+    return status;
+  }
+
+  async function updateHomeworkStatus(homework: Homework, status: "PUBLISHED" | "PAUSED" | "ARCHIVED") {
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/homeworks/${encodeURIComponent(homework.id)}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/login");
+        return;
+      }
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message ?? "作业状态更新失败");
+      setHomeworks((current) => current.map((item) => item.id === homework.id ? body.homework : item));
+      setNotice(`作业「${homework.title}」已${homeworkStatusLabel(status)}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "作业状态更新失败");
+    }
+  }
+
   async function publish(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setNotice("");
+    if (isTeacher && !selectedClassroomId) {
+      setError("教师发布作业前必须先选择一个已分配班级");
+      return;
+    }
     if (selectedIds.length === 0) {
       setError("请至少选择一名学生");
       return;
@@ -504,6 +621,7 @@ export default function HomeworkPage() {
           title,
           instructions,
           templateType,
+          classroomId: selectedClassroomId || undefined,
           cards: templateType === "READ_ALOUD_PICTURE_BOOK"
             ? items.map(({ imageUrl, sampleAudioUrl, referenceText }) => ({ imageUrl, sampleAudioUrl, referenceText: referenceText.trim() }))
             : undefined,
@@ -536,23 +654,11 @@ export default function HomeworkPage() {
     }
   }
 
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-  }
-
   const needsItems = templateType !== "STANDARD";
 
-  return <div className="console">
-    <aside className="sidebar">
-      <div className="sidebar-brand">Hello Betty</div>
-      <a className="nav-link" href="/dashboard"><LayoutDashboard size={17} />概览</a>
-      <a className="nav-link" href="/dashboard#students"><Users size={17} />学生账号</a>
-      <a className="nav-link active" href="/homeworks"><BookOpen size={17} />作业管理</a>
-      <div className="sidebar-footer"><button className="logout" onClick={logout}><LogOut size={16} />退出登录</button></div>
-    </aside>
+  return <ConsoleShell>
     <main className="main">
-      <header className="page-header"><div><p className="eyebrow">作业管理</p><h1>发布练习</h1></div><span className="header-user">发布后将按设定的周期触发</span></header>
+      <header className="page-header"><div><p className="eyebrow">作业管理</p><h1>发布练习</h1></div><span className="header-user">{context ? `${context.user.displayName} · ${context.user.role === "TEACHER" ? "教师" : "管理员"}` : "发布后将按设定的周期触发"}</span></header>
       {error ? <p className="table-error page-message" role="alert">{error}</p> : null}
       {notice ? <p className="success-note" role="status">{notice}</p> : null}
       <form className="publish-layout" onSubmit={publish}>
@@ -561,6 +667,7 @@ export default function HomeworkPage() {
           <div className="form-body">
             <div className="field"><label htmlFor="homework-title">标题</label><input id="homework-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：Unit 1 朗读练习" minLength={2} maxLength={100} required /></div>
             <div className="field"><label htmlFor="homework-instructions">练习说明</label><textarea id="homework-instructions" value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="告诉学生需要完成什么" maxLength={2000} /></div>
+            <div className="field"><label htmlFor="homework-classroom">班级范围</label><select id="homework-classroom" value={selectedClassroomId} onChange={(event) => setSelectedClassroomId(event.target.value)} required={isTeacher}><option value="">{isTeacher ? "请选择已分配班级" : "不限定班级"}</option>{activeClassrooms.map((classroom) => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}</select><span className="field-hint">{selectedClassroom ? `仅可选择 ${selectedClassroom.name} 内的学生` : isTeacher ? "教师发布必须绑定一个班级" : "管理员可用于历史或例外发布流程"}</span></div>
             <div className="field">
               <label>作业模板</label>
               <div className="template-grid">
@@ -583,7 +690,7 @@ export default function HomeworkPage() {
                 {["WORD_READ_ALOUD", "WORD_IMAGE_MATCH", "WORD_SCRAMBLE", "WORD_FILL_BLANK"].includes(templateType) ? <div className="field compact-field"><label htmlFor={`answer-${item.id}`}>英文单词</label><input id={`answer-${item.id}`} value={item.answerText} onChange={(event) => updateItem(item.id, { answerText: event.target.value })} placeholder="例如：apple" maxLength={100} /></div> : null}
                 {templateType === "WORD_IMAGE_MATCH" || templateType === "WORD_FILL_BLANK" ? <div className="field compact-field"><label htmlFor={`choices-${item.id}`}>备选词（可选）</label><textarea id={`choices-${item.id}`} value={item.choicesText} onChange={(event) => updateItem(item.id, { choicesText: event.target.value })} placeholder="逗号或换行分隔，例如：apple, orange, pear" maxLength={1000} /></div> : null}
                 {templateType !== "SENTENCE_READ_ALOUD" ? <label className="upload-field">练习图片<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadItemFile(item.id, file, "image"); }} /><span>{item.imageName || "选择 JPG、PNG 或 WebP"}</span></label> : null}
-                {RECORDING_TEMPLATES.has(templateType) ? <label className="upload-field">示范录音<input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadItemFile(item.id, file, "audio"); }} /><span>{item.audioName || "选择 MP3、WAV、M4A、WebM 或 OGG"}</span></label> : null}
+                {RECORDING_TEMPLATES.has(templateType) ? <label className="upload-field">示范录音<input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/m4a,audio/x-m4a,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadItemFile(item.id, file, "audio"); }} /><span>{item.audioName || "选择 MP3、WAV、M4A、WebM 或 OGG"}</span></label> : null}
                 {uploadingItemId === item.id ? <small className="upload-progress">正在上传...</small> : null}
               </div>)}
             </div> : null}
@@ -596,20 +703,20 @@ export default function HomeworkPage() {
           </div>
         </section>
         <section className="panel publish-panel">
-          <div className="panel-header"><h2>选择学生</h2><button className="text-button" type="button" onClick={toggleAll}>{selectedIds.length === students.length && students.length > 0 ? "取消全选" : "全选"}</button></div>
+          <div className="panel-header"><h2>选择学生</h2><button className="text-button" type="button" onClick={toggleAll} disabled={selectableStudents.length === 0}>{selectedIds.length === selectableStudents.length && selectableStudents.length > 0 ? "取消全选" : "全选"}</button></div>
           <div className="recipient-summary"><CheckSquare size={17} />已选择 {selectedCount} 名学生，将生成 {totalOccurrences} 次练习</div>
-          <div className="recipient-list">{students.length === 0 ? <p className="empty">暂无可选学生，请先完成学生注册。</p> : students.map((student) => <label className="recipient-row" key={student.id}><input type="checkbox" checked={selectedSet.has(student.id)} onChange={() => toggleStudent(student.id)} /><span><strong>{student.displayName}</strong><small>{student.phone}</small></span></label>)}</div>
+          <div className="recipient-list">{selectableStudents.length === 0 ? <p className="empty">{isTeacher && !selectedClassroom ? "请先选择一个已分配班级。" : "暂无可选学生，请先完成学生注册或班级成员配置。"}</p> : selectableStudents.map((student) => <label className="recipient-row" key={student.id}><input type="checkbox" checked={selectedSet.has(student.id)} onChange={() => toggleStudent(student.id)} /><span><strong>{student.displayName}</strong><small>{student.phone}</small></span></label>)}</div>
         </section>
         <div className="publish-actions"><button className="primary-button publish-button" type="submit" disabled={isSubmitting || Boolean(uploadingItemId)}>{isSubmitting ? "正在发布..." : "发布作业"}</button></div>
       </form>
       <section className="panel homework-history" aria-labelledby="history-title">
         <div className="panel-header"><h2 id="history-title">已发布作业</h2><span className="header-user">最近 {homeworks.length} 条</span></div>
-        <div className="table-wrap"><table><thead><tr><th>作业</th><th>模板</th><th>周期</th><th>学生</th><th>触发记录</th><th>首次触发</th></tr></thead><tbody>{homeworks.length === 0 ? <tr><td colSpan={6} className="empty">还没有发布作业</td></tr> : homeworks.map((homework) => <tr key={homework.id}><td>{homework.title}</td><td>{templateLabel(homework.templateType)}</td><td>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"}，共 {homework.occurrenceLimit} 次</td><td>{homework.targetCount} 名</td><td>{homework.occurrenceCount} 次</td><td>{new Date(homework.startsAt).toLocaleString("zh-CN")}</td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="homework-table"><thead><tr><th>作业</th><th>班级</th><th>模板</th><th>周期</th><th>学生</th><th>进度</th><th>状态</th><th>首次触发</th><th>操作</th></tr></thead><tbody>{homeworks.length === 0 ? <tr><td colSpan={9} className="empty">还没有发布作业</td></tr> : homeworks.map((homework) => <tr key={homework.id}><td>{homework.title}</td><td>{homework.classroomName ?? "未限定"}</td><td>{templateLabel(homework.templateType)}</td><td>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"}，共 {homework.occurrenceLimit} 次</td><td>{homework.targetCount} 名</td><td>{homework.completedOccurrenceCount ?? 0} / {homework.occurrenceCount} 次</td><td><span className="status">{homeworkStatusLabel(homework.status)}</span></td><td>{new Date(homework.startsAt).toLocaleString("zh-CN")}</td><td><div className="inline-actions">{homework.status === "PUBLISHED" ? <button className="table-icon-button" type="button" title="暂停作业" aria-label={`暂停 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PAUSED")}><Pause size={16} /></button> : null}{homework.status === "PAUSED" ? <button className="table-icon-button" type="button" title="恢复作业" aria-label={`恢复 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PUBLISHED")}><Play size={16} /></button> : null}{homework.status !== "ARCHIVED" ? <button className="table-icon-button" type="button" title="归档作业" aria-label={`归档 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "ARCHIVED")}><Archive size={16} /></button> : <span className="table-muted">-</span>}</div></td></tr>)}</tbody></table></div>
       </section>
       <section className="panel homework-history" aria-labelledby="review-title">
         <div className="panel-header"><h2 id="review-title">朗读提交</h2><div className="review-toolbar"><span className="header-user">待批改 {submissions.filter((submission) => submission.status === "DONE").length} · 已批改 {submissions.filter((submission) => submission.status === "GRADED").length}</span><button className={`table-icon-button ${reviewFilter === "DONE" ? "active-icon-button" : ""}`} type="button" title="查看待批改录音" aria-label="查看待批改录音" onClick={() => setReviewFilter("DONE")}><Clock3 size={17} /></button><button className={`table-icon-button ${reviewFilter === "GRADED" ? "active-icon-button" : ""}`} type="button" title="查看已批改录音" aria-label="查看已批改录音" onClick={() => setReviewFilter("GRADED")}><CheckCircle2 size={17} /></button></div></div>
-        <div className="table-wrap"><table className="review-table"><thead><tr><th>学生 / 作业</th><th>练习内容</th><th>学生录音</th><th>机器评测（参考）</th><th>人工等级</th><th>点评语音</th><th>状态</th><th>批改</th></tr></thead><tbody>{visibleSubmissions.length === 0 ? <tr><td colSpan={8} className="empty">{reviewFilter === "DONE" ? "暂时没有待批改的朗读录音" : "暂时没有已批改的朗读录音"}</td></tr> : visibleSubmissions.map((submission) => <tr key={`${submission.source}-${submission.id}`}><td><strong>{submission.studentName}</strong><br /><span className="table-muted">{submission.homeworkTitle}</span></td><td><span className="review-template">{templateLabel(submission.templateType)}</span><br /><strong>{submission.referenceText || submission.promptText || submission.answerText || (submission.cardPosition ? `第 ${submission.cardPosition} 页` : `第 ${submission.itemPosition ?? 1} 题`)}</strong></td><td><audio className="audio-control" controls preload="none" src={mediaUrl(submission.audioUrl)} /></td><td><AssessmentSummary assessment={submission.assessment} /></td><td><select className="grade-select" aria-label={`为 ${submission.studentName} 选择人工等级`} value={reviewGradeById[submission.id] ?? submission.grade ?? "A"} onChange={(event) => setReviewGradeById((current) => ({ ...current, [submission.id]: event.target.value as Grade }))}><option>A</option><option>B</option><option>C</option><option>D</option></select><span className="human-grade-note">人工终评</span></td><td><div className="review-audio-actions">{recordingReviewId === submission.id ? <button className="table-icon-button recording-icon-button" type="button" title="停止并上传语音点评" aria-label="停止并上传语音点评" onClick={stopFeedbackRecording}><Square size={15} /></button> : <button className="table-icon-button" type="button" title="录制语音点评" aria-label="录制语音点评" disabled={Boolean(recordingReviewId) || uploadingReviewId === submission.id} onClick={() => void startFeedbackRecording(submission.id)}><Mic size={16} /></button>}<label className="review-audio-upload" title="上传语音点评"><FileAudio size={17} /><input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadReviewAudio(submission.id, file); }} /></label>{reviewAudioById[submission.id] || submission.feedbackAudioUrl ? <span className="table-muted">已附语音</span> : null}</div></td><td><span className={submission.status === "GRADED" ? "status graded-status" : "status"}>{submission.status === "GRADED" ? "已批改" : "已做"}</span></td><td><button className="table-icon-button" type="button" title="提交人工批改" aria-label="提交人工批改" disabled={reviewingId === submission.id || uploadingReviewId === submission.id || recordingReviewId === submission.id} onClick={() => void reviewSubmission(submission)}>{reviewingId === submission.id ? "..." : <Check size={18} />}</button></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="review-table"><thead><tr><th>学生 / 作业</th><th>练习内容</th><th>学生录音</th><th>机器评测（参考）</th><th>人工等级</th><th>点评语音</th><th>状态</th><th>批改</th></tr></thead><tbody>{visibleSubmissions.length === 0 ? <tr><td colSpan={8} className="empty">{reviewFilter === "DONE" ? "暂时没有待批改的朗读录音" : "暂时没有已批改的朗读录音"}</td></tr> : visibleSubmissions.map((submission) => <tr key={`${submission.source}-${submission.id}`}><td><strong>{submission.studentName}</strong><br /><span className="table-muted">{submission.homeworkTitle}</span></td><td><span className="review-template">{templateLabel(submission.templateType)}</span><br /><strong>{submission.referenceText || submission.promptText || submission.answerText || (submission.cardPosition ? `第 ${submission.cardPosition} 页` : `第 ${submission.itemPosition ?? 1} 题`)}</strong></td><td><audio className="audio-control" controls preload="none" src={mediaUrl(submission.audioUrl)} /></td><td><AssessmentSummary assessment={submission.assessment} /></td><td><select className="grade-select" aria-label={`为 ${submission.studentName} 选择人工等级`} value={reviewGradeById[submission.id] ?? submission.grade ?? "A"} onChange={(event) => setReviewGradeById((current) => ({ ...current, [submission.id]: event.target.value as Grade }))}><option>A</option><option>B</option><option>C</option><option>D</option></select><span className="human-grade-note">人工终评</span></td><td><div className="review-audio-actions">{recordingReviewId === submission.id ? <button className="table-icon-button recording-icon-button" type="button" title="停止并上传语音点评" aria-label="停止并上传语音点评" onClick={stopFeedbackRecording}><Square size={15} /></button> : <button className="table-icon-button" type="button" title="录制语音点评" aria-label="录制语音点评" disabled={Boolean(recordingReviewId) || uploadingReviewId === submission.id} onClick={() => void startFeedbackRecording(submission.id)}><Mic size={16} /></button>}<label className="review-audio-upload" title="上传语音点评"><FileAudio size={17} /><input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/m4a,audio/x-m4a,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadReviewAudio(submission.id, file); }} /></label>{reviewAudioById[submission.id] || submission.feedbackAudioUrl ? <span className="table-muted">已附语音</span> : null}</div></td><td><span className={submission.status === "GRADED" ? "status graded-status" : "status"}>{submission.status === "GRADED" ? "已批改" : "已做"}</span></td><td><button className="table-icon-button" type="button" title="提交人工批改" aria-label="提交人工批改" disabled={reviewingId === submission.id || uploadingReviewId === submission.id || recordingReviewId === submission.id} onClick={() => void reviewSubmission(submission)}>{reviewingId === submission.id ? "..." : <Check size={18} />}</button></td></tr>)}</tbody></table></div>
       </section>
     </main>
-  </div>;
+  </ConsoleShell>;
 }

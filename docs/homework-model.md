@@ -11,8 +11,9 @@ Teachers publish a homework plan once, choose its students, and define how often
 The teacher-owned plan:
 
 - `publisherId`: teacher or administrator that published it.
+- `classroomId`: the owning classroom for new teacher-published homework; administrators may leave it null for exceptional or legacy flows.
 - `title`, `instructions`: student-facing summary and instructions.
-- `status`: starts as `PUBLISHED`; later states are `PAUSED` and `ARCHIVED`.
+- `status`: starts as `PUBLISHED`; `PAUSED` hides and blocks student work without deleting history, while `ARCHIVED` is terminal.
 - `startsAt`: UTC timestamp for the first trigger.
 - `repeatUnit`: `DAY` or `WEEK`.
 - `repeatInterval`: number of units between triggers, from 1 to 52.
@@ -31,6 +32,12 @@ One scheduled instance for one recipient. It contains:
 - `status`: starts as `SCHEDULED`; later workflow states are `AVAILABLE`, `COMPLETED`, and `EXPIRED`.
 
 Future student submissions and teacher grading must refer to a `HomeworkOccurrence`, not directly to the reusable `Homework` plan.
+
+Staff progress is derived as completed occurrences divided by all generated occurrences for the plan. Pausing or archiving does not remove recipients, occurrences, submissions, reviews, or assessment results.
+
+### Classroom
+
+`Classroom` is the authorization owner for new teacher workflows. Administrators manage its name, active/archived status, teachers, and students. A user may belong to multiple classrooms. A teacher can publish, review, read statistics, retry assessments, and stream private media only through an assigned active classroom. Existing homework with no classroom remains available to administrators and its original publisher.
 
 ### PictureBookCard
 
@@ -88,12 +95,12 @@ Objective word submissions store the submitted word and a server-calculated corr
 
 ## Publish Contract
 
-`POST /api/admin/homeworks` publishes a plan and creates all recipient and occurrence records in one SQLite transaction. Any invalid, inactive, or non-student recipient rejects the full request; partial publication is not allowed.
+`POST /api/admin/homeworks` publishes a plan and creates all recipient and occurrence records in one SQLite transaction. Any invalid, inactive, non-student, or out-of-class recipient rejects the full request; partial publication is not allowed. Teachers must provide an assigned active `classroomId`; administrators may publish with a nullable classroom.
 
 Picture-book publication additionally requires every card to contain an image and a sample audio URL. Uploads are limited to 20 MB and accepted only for supported image and audio media types.
 
 Sentence and word template publication uses ordered `items`. Item validation is template-specific, and invalid item content rejects the whole transaction together with invalid recipients.
 
-Students read only their own learning aggregate. Staff can read the aggregate of an active student without gaining access to that student's recordings or answers.
+Students read only their own learning aggregate. Administrators can read any active student's aggregate; teachers can read it only for active students in an assigned active classroom. The same scope controls reviews, assessments, and private media.
 
 Example: a weekly plan with `interval: 2` and `occurrenceLimit: 3` begins on 20 July and schedules triggers on 20 July, 3 August, and 17 August for each selected student.

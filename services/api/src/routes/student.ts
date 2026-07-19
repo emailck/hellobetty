@@ -8,7 +8,7 @@ import {
   InvalidItemSubmissionError,
   InvalidRecordingDurationError,
 } from "../lib/account-store.js";
-import { USER_ROLES, USER_STATUSES } from "../domain/user.js";
+import { toPublicUser, USER_ROLES, USER_STATUSES } from "../domain/user.js";
 import type { AccessTokenPayload } from "../types/jwt.js";
 import { config } from "../config.js";
 import { getUploadKind, saveUpload } from "../lib/uploads.js";
@@ -45,6 +45,92 @@ async function requireStudent(
 
 export function createStudentRoutes(store: AccountStore) {
   return async function studentRoutes(app: FastifyInstance) {
+    app.get(
+      "/profile",
+      { preHandler: (request, reply) => requireStudent(store, request, reply) },
+      async (request) => {
+        const token = await request.jwtVerify<AccessTokenPayload>();
+        const user = store.findById(token.sub)!;
+        return { user: toPublicUser(user), ...store.getStudentProfile(token.sub) };
+      },
+    );
+
+    app.patch<{
+      Body: {
+        displayName?: string;
+        englishName?: string | null;
+        schoolName?: string | null;
+        gradeLevel?: string | null;
+        learningGoal?: string | null;
+        phone?: string;
+      };
+    }>(
+      "/profile",
+      {
+        preHandler: (request, reply) => requireStudent(store, request, reply),
+        schema: {
+          body: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              displayName: { type: "string", maxLength: 24 },
+              englishName: { anyOf: [{ type: "string", maxLength: 24 }, { type: "null" }] },
+              schoolName: { anyOf: [{ type: "string", maxLength: 60 }, { type: "null" }] },
+              gradeLevel: { anyOf: [{ type: "string", maxLength: 20 }, { type: "null" }] },
+              learningGoal: { anyOf: [{ type: "string", maxLength: 160 }, { type: "null" }] },
+              phone: { type: "string" },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        if ("phone" in (request.body as Record<string, unknown>)) {
+          return reply.code(400).send({ code: "VALIDATION_ERROR", message: "手机号不可修改" });
+        }
+        if (request.body.displayName !== undefined) {
+          const trimmed = request.body.displayName.trim();
+          if (trimmed.length < 2 || trimmed.length > 24) {
+            return reply.code(400).send({ code: "VALIDATION_ERROR", message: "姓名长度不正确" });
+          }
+          request.body.displayName = trimmed;
+        }
+        const token = await request.jwtVerify<AccessTokenPayload>();
+        const updated = store.updateStudentProfile({
+          studentId: token.sub,
+          displayName: request.body.displayName,
+          englishName: request.body.englishName,
+          schoolName: request.body.schoolName,
+          gradeLevel: request.body.gradeLevel,
+          learningGoal: request.body.learningGoal,
+        });
+        const user = store.findById(token.sub)!;
+        return { user: toPublicUser(user), ...updated };
+      },
+    );
+
+    app.get<{ Querystring: { page?: string; pageSize?: string } }>(
+      "/homework-history",
+      {
+        preHandler: (request, reply) => requireStudent(store, request, reply),
+        schema: {
+          querystring: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              page: { type: "string", pattern: "^[0-9]+$" },
+              pageSize: { type: "string", pattern: "^[0-9]+$" },
+            },
+          },
+        },
+      },
+      async (request) => {
+        const token = await request.jwtVerify<AccessTokenPayload>();
+        const page = Math.max(1, Number(request.query.page ?? 1));
+        const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize ?? 20)));
+        return store.listStudentHomeworkHistory({ studentId: token.sub, page, pageSize });
+      },
+    );
+
     app.get(
       "/reading-homeworks",
       { preHandler: (request, reply) => requireStudent(store, request, reply) },

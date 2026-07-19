@@ -71,9 +71,16 @@ function audioMultipart() {
 
 describe("generic homework templates", () => {
   it("validates all template payloads and rolls back invalid publication", async () => {
-    const { student, teacherToken } = await createUsers();
+    const { student, teacher, teacherToken } = await createUsers();
+    const classroom = store.createClassroom({
+      creatorId: teacher.id,
+      name: "Word class",
+      teacherIds: [teacher.id],
+      studentIds: [student.id],
+    });
     const basePayload = {
       title: "Word practice",
+      classroomId: classroom.id,
       studentIds: [student.id],
       schedule: schedule(),
     };
@@ -225,11 +232,22 @@ describe("generic homework templates", () => {
       status: "DONE",
     });
     const firstSubmissionId = submissions.json().submissions[0].id as string;
+    const publicFeedback = await app.inject({
+      method: "POST",
+      url: `/api/admin/practice-recording-submissions/${firstSubmissionId}/review`,
+      headers: { authorization: `Bearer ${teacherToken}` },
+      payload: { grade: "A", feedbackAudioUrl: "/uploads/assets/teacher-feedback.m4a" },
+    });
+    expect(publicFeedback.statusCode).toBe(400);
+    expect(publicFeedback.json().code).toBe("FEEDBACK_AUDIO_INVALID");
+
+    const privateFeedbackUrl = "/uploads/feedback/00000000-0000-4000-8000-000000000002.m4a";
+    store.registerFeedbackUpload({ url: privateFeedbackUrl, uploaderId: teacher.id });
     const review = await app.inject({
       method: "POST",
       url: `/api/admin/practice-recording-submissions/${firstSubmissionId}/review`,
       headers: { authorization: `Bearer ${teacherToken}` },
-      payload: { grade: "A", feedbackAudioUrl: "/uploads/teacher-feedback.m4a" },
+      payload: { grade: "A", feedbackAudioUrl: privateFeedbackUrl },
     });
     expect(review.statusCode).toBe(200);
     expect(review.json().submission).toMatchObject({ grade: "A", status: "GRADED" });

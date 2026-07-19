@@ -20,7 +20,10 @@
 - `api.md`: current HTTP account contract.
 - `getting-started.md`: local installation, startup, and verification workflow.
 - `homework-model.md`: homework plan, recipient, and trigger model.
+- `homework-flow.md`: centered homework modal, responsive media, press feedback, and continuous next-homework navigation plan.
 - `homework-template-expansion.md`: sentence and word homework template design and delivery status.
 - `learning-stats.md`: check-in, voice-duration, and homework-duration measurement contract.
+- `operations-milestone.md`: classroom authorization, account operations, homework lifecycle, and speech-assessment operations plan.
 - `product-scope.md`: current and planned product scope.
 - `speech-assessment.md`: provider-neutral asynchronous speech-assessment architecture and delivery status.
+- `student-engagement.md`: teacher-configured classroom rewards, student points, editable profile, homework history, and learning visualization milestone.

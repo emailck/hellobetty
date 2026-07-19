@@ -12,6 +12,8 @@ const fileExtensions: Record<string, string> = {
   "audio/wav": "wav",
   "audio/x-wav": "wav",
   "audio/mp4": "m4a",
+  "audio/m4a": "m4a",
+  "audio/x-m4a": "m4a",
   "audio/webm": "webm",
   "audio/ogg": "ogg",
 };
@@ -24,7 +26,7 @@ export function getUploadKind(mimetype: string): "image" | "audio" | null {
 export async function saveUpload(
   file: MultipartFile,
   uploadsPath: string,
-  directory: "assets" | "submissions",
+  directory: "assets" | "submissions" | "feedback",
 ) {
   const kind = getUploadKind(file.mimetype);
   if (!kind) throw new Error("UNSUPPORTED_UPLOAD_TYPE");
