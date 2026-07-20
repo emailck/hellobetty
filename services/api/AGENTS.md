@@ -38,6 +38,7 @@
 - Record student learning days using the `Asia/Shanghai` calendar. Recording submissions create a check-in even when duration is omitted, and one submitted duration contributes at most 600 voice seconds.
 - Homework learning sessions use server start and completion times, complete only while the homework remains `PUBLISHED`, credit at most 7200 seconds, and add daily homework time exactly once when completion succeeds.
 - Student homework history includes all assigned occurrences scheduled up to now, including paused and archived parent homework.
+- Student homework list summaries return every due recurring occurrence independently with its `scheduledAt` dispatch timestamp, and expose whether it has a learning session plus completed and latest-submission reviewed counts so clients can distinguish unseen, incomplete, completed, and fully reviewed work without inferring server state.
 - Student learning statistics are account-private; staff statistics require an active `STUDENT` target.
 
 ## Work Guidance

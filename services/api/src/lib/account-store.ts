@@ -1673,8 +1673,22 @@ return rows.map(mapHomeworkSummaryRow);
     return this.database
       .prepare(`
         SELECT o.id, h.title, h.instructions, o.status, o.scheduled_at,
-          COUNT(card.id) AS card_count,
-          COUNT(DISTINCT submission.card_id) AS submitted_card_count
+          COUNT(DISTINCT card.id) AS card_count,
+          COUNT(DISTINCT submission.card_id) AS submitted_card_count,
+          COUNT(DISTINCT CASE
+            WHEN (submission.reviewed_at IS NOT NULL OR submission.grade IS NOT NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM homework_card_submissions newer
+                WHERE newer.occurrence_id = submission.occurrence_id
+                  AND newer.card_id = submission.card_id
+                  AND newer.student_id = submission.student_id
+                  AND newer.attempt_number > submission.attempt_number
+              ) THEN submission.card_id
+          END) AS reviewed_card_count,
+          EXISTS (
+            SELECT 1 FROM homework_learning_sessions session
+            WHERE session.occurrence_id = o.id AND session.student_id = o.student_id
+          ) AS has_viewed
         FROM homework_occurrences o
         INNER JOIN homeworks h ON h.id = o.homework_id
         INNER JOIN homework_cards card ON card.homework_id = h.id
@@ -1698,6 +1712,8 @@ return rows.map(mapHomeworkSummaryRow);
         scheduledAt: String((row as Record<string, unknown>).scheduled_at),
         cardCount: Number((row as Record<string, unknown>).card_count),
         submittedCardCount: Number((row as Record<string, unknown>).submitted_card_count),
+        reviewedCardCount: Number((row as Record<string, unknown>).reviewed_card_count),
+        hasViewed: Boolean((row as Record<string, unknown>).has_viewed),
       }));
   }
 
@@ -2043,7 +2059,22 @@ return rows.map(mapHomeworkSummaryRow);
               AND submission.id IS NOT NULL THEN item.id
             WHEN h.template_type IN ('WORD_IMAGE_MATCH', 'WORD_SCRAMBLE', 'WORD_FILL_BLANK')
               AND submission.is_correct = 1 THEN item.id
-          END) AS completed_item_count
+          END) AS completed_item_count,
+          COUNT(DISTINCT CASE
+            WHEN h.template_type IN ('SENTENCE_READ_ALOUD', 'WORD_READ_ALOUD')
+              AND (submission.reviewed_at IS NOT NULL OR submission.grade IS NOT NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM homework_item_submissions newer
+                WHERE newer.occurrence_id = submission.occurrence_id
+                  AND newer.item_id = submission.item_id
+                  AND newer.student_id = submission.student_id
+                  AND newer.attempt_number > submission.attempt_number
+              ) THEN item.id
+          END) AS reviewed_item_count,
+          EXISTS (
+            SELECT 1 FROM homework_learning_sessions session
+            WHERE session.occurrence_id = o.id AND session.student_id = o.student_id
+          ) AS has_viewed
         FROM homework_occurrences o
         INNER JOIN homeworks h ON h.id = o.homework_id
         INNER JOIN homework_items item ON item.homework_id = h.id
@@ -2073,6 +2104,8 @@ return rows.map(mapHomeworkSummaryRow);
           scheduledAt: String(occurrence.scheduled_at),
           itemCount: Number(occurrence.item_count),
           completedItemCount: Number(occurrence.completed_item_count),
+          reviewedItemCount: Number(occurrence.reviewed_item_count),
+          hasViewed: Boolean(occurrence.has_viewed),
         };
       });
   }

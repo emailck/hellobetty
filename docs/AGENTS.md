@@ -17,6 +17,7 @@
 - Re-read affected documents against the current code and commands.
 
 ## Child DOX Index
+- `android-emulator-debugging.md`: Windows Android emulator startup, port forwarding, reliable release verification, and failure recovery workflow.
 - `api.md`: current HTTP account contract.
 - `getting-started.md`: local installation, startup, and verification workflow.
 - `homework-model.md`: homework plan, recipient, and trigger model.

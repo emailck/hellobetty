@@ -23,6 +23,8 @@ Start the three commands in separate terminals. Default local addresses:
 
 When a default port is occupied, choose another free port such as `3001` for the admin console and `8083` for the mobile preview.
 
+For Android emulator builds, use the dedicated [Android emulator debugging guide](android-emulator-debugging.md). It owns the required working directory, Android environment variables, `adb reverse` setup, Metro port alignment, and release verification fallback.
+
 ## Local administrator
 
 The seed command creates or updates the administrator defined by these optional API environment variables:

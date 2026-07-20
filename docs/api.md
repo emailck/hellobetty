@@ -171,7 +171,7 @@ Requires an active staff bearer token and one multipart `file` field. It accepts
 
 ### `GET /api/student/reading-homeworks`
 
-Returns available picture-book occurrences for the logged-in student and the number of completed cards.
+Returns available picture-book occurrences for the logged-in student with card totals, completed-card count, latest-submission reviewed-card count, and `hasViewed` derived from homework learning sessions.
 
 ### `GET /api/student/reading-homeworks/:occurrenceId`
 
@@ -185,7 +185,7 @@ Requires student authentication and one multipart audio `file` field. Optional `
 
 ### `GET /api/student/practice-homeworks`
 
-Returns available sentence and word occurrences with template type, item count, and completed item count.
+Returns available sentence and word occurrences with template type, item totals, completed-item count, latest-submission reviewed-item count, and `hasViewed` derived from homework learning sessions. Objective templates always return zero reviewed items because they do not require staff review.
 
 ### `GET /api/student/practice-homeworks/:occurrenceId`
 

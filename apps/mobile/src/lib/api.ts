@@ -153,6 +153,16 @@ export const homeworkTemplateTypes = [
 
 export type HomeworkTemplateType = (typeof homeworkTemplateTypes)[number];
 
+export interface ReadingHomeworkSummary {
+  id: string;
+  title: string;
+  scheduledAt: string;
+  cardCount: number;
+  submittedCardCount: number;
+  reviewedCardCount: number;
+  hasViewed: boolean;
+}
+
 export interface PracticeHomeworkSummary {
   id: string;
   title: string;
@@ -162,6 +172,8 @@ export interface PracticeHomeworkSummary {
   scheduledAt: string;
   itemCount: number;
   completedItemCount: number;
+  reviewedItemCount: number;
+  hasViewed: boolean;
 }
 
 export interface PracticeItem {
@@ -318,7 +330,7 @@ export interface MobileUploadFile {
 }
 
 export function getReadingHomeworks(token: string) {
-  return request<{ occurrences: Array<{ id: string; title: string; scheduledAt: string; cardCount: number; submittedCardCount: number }> }>("/api/student/reading-homeworks", {
+  return request<{ occurrences: ReadingHomeworkSummary[] }>("/api/student/reading-homeworks", {
     headers: { Authorization: `Bearer ${token}` },
   });
 }

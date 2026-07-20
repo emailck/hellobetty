@@ -53,6 +53,7 @@ import {
   type LearningRecentDay,
   type LearningStatsSummary,
   type ReadingCard,
+  type ReadingHomeworkSummary,
   type ReadingOccurrence,
   type SpeechAssessment,
   type StaffClassroom,
@@ -84,6 +85,7 @@ import type { CurrentUser } from "./src/types";
 type AuthMode = "login" | "register";
 type StudentView = "home" | "profile" | "reading" | "practice";
 type ProfileTab = "PROFILE" | "LEARNING" | "HISTORY";
+type HomeworkListStatus = "UNVIEWED" | "INCOMPLETE" | "COMPLETED" | "REVIEWED";
 type NextHomeworkDestination = {
   id: string;
   title: string;
@@ -104,6 +106,12 @@ const templateLabels: Record<HomeworkTemplateType, string> = {
 };
 
 const recordingTemplates: HomeworkTemplateType[] = ["SENTENCE_READ_ALOUD", "WORD_READ_ALOUD"];
+const homeworkStatusMeta = {
+  UNVIEWED: { label: "未查看", icon: "eye-off-outline" as const, color: colors.faint },
+  INCOMPLETE: { label: "未完成", icon: "hourglass-outline" as const, color: "#a86412" },
+  COMPLETED: { label: "已完成", icon: "checkmark-circle-outline" as const, color: "#28789e" },
+  REVIEWED: { label: "老师已批改", icon: "ribbon-outline" as const, color: "#2e7d4f" },
+};
 const assessmentPollIntervalMs = 4000;
 const assessmentObservationWindowMs = 5 * 60 * 1000;
 const webSafeAreaMetrics = {
@@ -149,6 +157,35 @@ function pendingAssessmentObservationKeys(assessments: Array<SpeechAssessment | 
 
 function isActiveStatus(status: string) {
   return status.toUpperCase() === "ACTIVE";
+}
+
+function getHomeworkListStatus(input: { hasViewed: boolean; completedCount: number; totalCount: number; reviewedCount: number; requiresReview: boolean }): HomeworkListStatus {
+  const complete = input.totalCount > 0 && input.completedCount >= input.totalCount;
+  if (complete && input.requiresReview && input.reviewedCount >= input.totalCount) return "REVIEWED";
+  if (complete) return "COMPLETED";
+  if (!input.hasViewed && input.completedCount === 0) return "UNVIEWED";
+  return "INCOMPLETE";
+}
+
+function HomeworkStatusIndicator({ status }: { status: HomeworkListStatus }) {
+  const meta = homeworkStatusMeta[status];
+  return <View accessible accessibilityLabel={`作业状态：${meta.label}`} style={styles.homeworkStatus}>
+    <Ionicons name={meta.icon} color={meta.color} size={16} />
+    <Text style={[styles.homeworkStatusText, { color: meta.color }]}>{meta.label}</Text>
+  </View>;
+}
+
+function homeworkListAction(status: HomeworkListStatus, requiresReview: boolean) {
+  if (status === "UNVIEWED") return "点击查看作业";
+  if (status === "INCOMPLETE") return "继续练习";
+  if (status === "REVIEWED") return "查看老师点评或重新练习";
+  return requiresReview ? "已完成，等待老师批改" : "已完成，可继续巩固";
+}
+
+function homeworkDispatchDate(scheduledAt: string) {
+  const date = new Date(scheduledAt);
+  if (Number.isNaN(date.getTime())) return scheduledAt;
+  return `${date.getMonth() + 1}月${date.getDate()}日派发`;
 }
 
 function isNextHomeworkComplete(homework: NextHomeworkDestination) {
@@ -424,7 +461,7 @@ function StudentHome({
   onOpenReading: (occurrenceId: string) => void;
   onOpenPractice: (occurrenceId: string) => void;
 }) {
-  const [homeworks, setHomeworks] = useState<Array<{ id: string; title: string; scheduledAt: string; cardCount: number; submittedCardCount: number }>>([]);
+  const [homeworks, setHomeworks] = useState<ReadingHomeworkSummary[]>([]);
   const [practiceHomeworks, setPracticeHomeworks] = useState<PracticeHomeworkSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -456,16 +493,23 @@ function StudentHome({
       <View>
         {isLoading ? <ActivityIndicator color={colors.text} /> : null}
         {!isLoading && homeworks.length === 0 && practiceHomeworks.length === 0 ? <Text style={styles.emptyHomework}>老师暂时还没有布置练习。</Text> : null}
-        {homeworks.map((homework) => <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => onOpenReading(homework.id)}>
-          <Text style={styles.previewTitle}>{homework.title}</Text>
-          <Text style={styles.previewText}>跟读绘本 · {homework.submittedCardCount}/{homework.cardCount} 张已完成</Text>
-          <Text style={styles.previewTag}>{homework.submittedCardCount === homework.cardCount ? "已完成，可重新录音" : "开始跟读"}</Text>
-        </Pressable>)}
-        {practiceHomeworks.map((homework) => <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => onOpenPractice(homework.id)}>
-          <Text style={styles.previewTitle}>{homework.title}</Text>
-          <Text style={styles.previewText}>{templateLabels[homework.templateType]} · {homework.completedItemCount}/{homework.itemCount} 题已完成</Text>
-          <Text style={styles.previewTag}>{homework.completedItemCount === homework.itemCount ? "已完成，可继续巩固" : "继续练习"}</Text>
-        </Pressable>)}
+        {homeworks.map((homework) => {
+          const status = getHomeworkListStatus({ hasViewed: homework.hasViewed, completedCount: homework.submittedCardCount, totalCount: homework.cardCount, reviewedCount: homework.reviewedCardCount, requiresReview: true });
+          return <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => onOpenReading(homework.id)}>
+            <View style={styles.previewHeader}><Text style={[styles.previewTitle, styles.previewTitleInRow]}>{homework.title}</Text><HomeworkStatusIndicator status={status} /></View>
+            <Text style={styles.previewText}>跟读绘本 · {homework.submittedCardCount}/{homework.cardCount} 张已完成</Text>
+            <View style={styles.homeworkFooter}><Text style={styles.homeworkAction}>{homeworkListAction(status, true)}</Text><Text style={styles.homeworkDispatchDate}>{homeworkDispatchDate(homework.scheduledAt)}</Text></View>
+          </Pressable>;
+        })}
+        {practiceHomeworks.map((homework) => {
+          const requiresReview = recordingTemplates.includes(homework.templateType);
+          const status = getHomeworkListStatus({ hasViewed: homework.hasViewed, completedCount: homework.completedItemCount, totalCount: homework.itemCount, reviewedCount: homework.reviewedItemCount, requiresReview });
+          return <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => onOpenPractice(homework.id)}>
+            <View style={styles.previewHeader}><Text style={[styles.previewTitle, styles.previewTitleInRow]}>{homework.title}</Text><HomeworkStatusIndicator status={status} /></View>
+            <Text style={styles.previewText}>{templateLabels[homework.templateType]} · {homework.completedItemCount}/{homework.itemCount} 题已完成</Text>
+            <View style={styles.homeworkFooter}><Text style={styles.homeworkAction}>{homeworkListAction(status, requiresReview)}</Text><Text style={styles.homeworkDispatchDate}>{homeworkDispatchDate(homework.scheduledAt)}</Text></View>
+          </Pressable>;
+        })}
         {message ? <Text style={styles.readingMessage}>{message}</Text> : null}
       </View>
     </ScrollView>
