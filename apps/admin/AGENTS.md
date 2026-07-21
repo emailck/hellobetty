@@ -14,7 +14,7 @@
 - Account and classroom mutation controls are administrator-only; teachers may see assigned classroom context as read-only operational context.
 - Teacher-published homework must be bound to an assigned active classroom, and selectable students must come from that classroom.
 - Administrator-published homework may remain unscoped for legacy or exception workflows, but scoped classroom selection must filter selectable students.
-- Homework history must expose classroom, status, completion progress, and lifecycle controls for pause, resume, and archive.
+- Homework history must expose classroom, status, completion progress, and lifecycle controls for pause, resume, and confirmed terminal end; ended `ARCHIVED` homework is labeled `已结束` for staff.
 - Keep homework publication explicit: selected student count and generated trigger count must be visible before and after publishing.
 - Point-policy management must use only server-returned accessible active classroom policies, validate classroom reward values locally before saving, and state that changes affect future point awards only.
 - For picture-book read-aloud templates, require reference text, one image, and one sample audio file for every card before publishing.

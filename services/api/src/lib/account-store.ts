@@ -260,6 +260,11 @@ function shiftCalendarDate(date: string, days: number): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+function getRecentHomeworkCutoff(value: Date): string {
+  const firstDate = shiftCalendarDate(getShanghaiDate(value), -4);
+  return new Date(`${firstDate}T00:00:00+08:00`).toISOString();
+}
+
 function clampRecordingDuration(value: number | undefined): number {
   if (value === undefined) return 0;
   if (!Number.isFinite(value) || value <= 0) {
@@ -1572,7 +1577,7 @@ export class AccountStore {
     return Number(row.count);
   }
 
-  listPublishedHomeworks(limit = 20, scope?: StaffScope): HomeworkSummary[] {
+  listPublishedHomeworks(limit = 20, scope?: StaffScope, offset = 0): HomeworkSummary[] {
     const clauses: string[] = [];
     const values: SQLInputValue[] = [];
     appendStaffHomeworkScope(clauses, values, scope, "h");
@@ -1595,10 +1600,21 @@ export class AccountStore {
         ${where}
         GROUP BY h.id
         ORDER BY h.published_at DESC
-        LIMIT ?
+        LIMIT ? OFFSET ?
       `)
-      .all(...values, limit) as Array<Record<string, unknown>>;
-return rows.map(mapHomeworkSummaryRow);
+      .all(...values, limit, offset) as Array<Record<string, unknown>>;
+    return rows.map(mapHomeworkSummaryRow);
+  }
+
+  countPublishedHomeworks(scope?: StaffScope): number {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkScope(clauses, values, scope, "h");
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const row = this.database
+      .prepare(`SELECT COUNT(*) AS count FROM homeworks h ${where}`)
+      .get(...values) as { count: number };
+    return Number(row.count);
   }
 
   updateHomeworkStatus(input: {
@@ -1658,8 +1674,9 @@ return rows.map(mapHomeworkSummaryRow);
     return row ? mapHomeworkRow(row) : null;
   }
 
-  listStudentReadingOccurrences(studentId: string) {
-    const now = new Date().toISOString();
+  listStudentReadingOccurrences(studentId: string, currentTime = new Date()) {
+    const now = currentTime.toISOString();
+    const recentCutoff = getRecentHomeworkCutoff(currentTime);
     this.database
       .prepare(`
         UPDATE homework_occurrences SET status = 'AVAILABLE'
@@ -1697,11 +1714,12 @@ return rows.map(mapHomeworkSummaryRow);
         WHERE o.student_id = ?
           AND h.template_type = 'READ_ALOUD_PICTURE_BOOK'
           AND h.status = 'PUBLISHED'
+          AND o.scheduled_at >= ?
           AND o.scheduled_at <= ?
         GROUP BY o.id
         ORDER BY o.scheduled_at ASC
       `)
-      .all(studentId, now)
+      .all(studentId, recentCutoff, now)
       .map((row) => ({
         id: String((row as Record<string, unknown>).id),
         title: String((row as Record<string, unknown>).title),
@@ -2038,8 +2056,9 @@ return rows.map(mapHomeworkSummaryRow);
     }
   }
 
-  listStudentPracticeOccurrences(studentId: string) {
-    const now = new Date().toISOString();
+  listStudentPracticeOccurrences(studentId: string, currentTime = new Date()) {
+    const now = currentTime.toISOString();
+    const recentCutoff = getRecentHomeworkCutoff(currentTime);
     this.database
       .prepare(`
         UPDATE homework_occurrences SET status = 'AVAILABLE'
@@ -2088,11 +2107,12 @@ return rows.map(mapHomeworkSummaryRow);
             'WORD_SCRAMBLE', 'WORD_FILL_BLANK'
           )
           AND h.status = 'PUBLISHED'
+          AND o.scheduled_at >= ?
           AND o.scheduled_at <= ?
         GROUP BY o.id
         ORDER BY o.scheduled_at ASC
       `)
-      .all(studentId, now)
+      .all(studentId, recentCutoff, now)
       .map((row) => {
         const occurrence = row as Record<string, unknown>;
         return {
@@ -3273,8 +3293,8 @@ return rows.map(mapHomeworkSummaryRow);
     };
   }
 
-  listStudentHomeworkHistory(input: { studentId: string; page: number; pageSize: number }) {
-    const now = new Date().toISOString();
+  listStudentHomeworkHistory(input: { studentId: string; page: number; pageSize: number; currentTime?: Date }) {
+    const now = (input.currentTime ?? new Date()).toISOString();
     const offset = (input.page - 1) * input.pageSize;
     const rows = this.database
       .prepare(`

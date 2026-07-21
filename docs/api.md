@@ -157,11 +157,13 @@ Supported types are `SENTENCE_READ_ALOUD`, `WORD_READ_ALOUD`, `WORD_IMAGE_MATCH`
 
 ### `GET /api/admin/homeworks`
 
-Returns the 20 most recent accessible plans with classroom metadata, target count, generated occurrence count, completed occurrence count, and lifecycle status. Administrators see all plans; teachers see assigned active-classroom plans plus legacy plans they originally published.
+Returns accessible plans newest-first with classroom metadata, target count, generated occurrence count, completed occurrence count, and lifecycle status. Administrators see all plans; teachers see assigned active-classroom plans plus legacy plans they originally published.
+
+Optional query parameters are `page` and `pageSize`; defaults are `1` and `20`, and `pageSize` is capped at `50`. The response includes `{ homeworks, pagination: { page, pageSize, total } }`, where `total` uses the same authorization scope as the rows.
 
 ### `PATCH /api/admin/homeworks/:homeworkId/status`
 
-Accepts `PUBLISHED`, `PAUSED`, or `ARCHIVED`. `PUBLISHED` and `PAUSED` may transition between each other; `ARCHIVED` is terminal. Paused or archived work is hidden from student lists and blocks new student detail, submission, answer, and learning-session operations without deleting history.
+Accepts `PUBLISHED`, `PAUSED`, or `ARCHIVED`. `PUBLISHED` and `PAUSED` may transition between each other. The staff `结束作业` action writes terminal `ARCHIVED`; clients label it `已结束` for staff and `已封存` in student history. Paused or ended work is hidden from current student lists and blocks new student detail, submission, answer, and learning-session operations without deleting history.
 
 ### `POST /api/admin/uploads`
 
@@ -171,7 +173,7 @@ Requires an active staff bearer token and one multipart `file` field. It accepts
 
 ### `GET /api/student/reading-homeworks`
 
-Returns available picture-book occurrences for the logged-in student with card totals, completed-card count, latest-submission reviewed-card count, and `hasViewed` derived from homework learning sessions.
+Returns available picture-book occurrences scheduled during today and the preceding four `Asia/Shanghai` calendar days for the logged-in student, with card totals, completed-card count, latest-submission reviewed-card count, and `hasViewed` derived from homework learning sessions. Older assigned occurrences remain available from homework history.
 
 ### `GET /api/student/reading-homeworks/:occurrenceId`
 
@@ -185,7 +187,7 @@ Requires student authentication and one multipart audio `file` field. Optional `
 
 ### `GET /api/student/practice-homeworks`
 
-Returns available sentence and word occurrences with template type, item totals, completed-item count, latest-submission reviewed-item count, and `hasViewed` derived from homework learning sessions. Objective templates always return zero reviewed items because they do not require staff review.
+Returns available sentence and word occurrences scheduled during today and the preceding four `Asia/Shanghai` calendar days, with template type, item totals, completed-item count, latest-submission reviewed-item count, and `hasViewed` derived from homework learning sessions. Objective templates always return zero reviewed items because they do not require staff review; older assigned occurrences remain available from homework history.
 
 ### `GET /api/student/practice-homeworks/:occurrenceId`
 
@@ -215,7 +217,7 @@ Partially updates `displayName`, `englishName`, `schoolName`, `gradeLevel`, or `
 
 ### `GET /api/student/homework-history`
 
-Returns the authenticated student's assigned occurrences scheduled up to now, newest first. Query parameters are `page` and `pageSize` with a maximum page size of 100. Each row includes template, parent homework lifecycle, occurrence status, completion fraction, and current latest-attempt review count. Paused and archived homework remains historical but cannot be reopened for submission.
+Returns the authenticated student's assigned occurrences scheduled up to now, newest first. Query parameters are `page` and `pageSize` with a maximum page size of 100. Each row includes template, parent homework lifecycle, occurrence status, completion fraction, and current latest-attempt review count. Paused and ended homework remains historical but cannot be reopened for submission; mobile renders terminal `ARCHIVED` as `已封存`.
 
 ### `POST /api/student/homework-sessions`
 

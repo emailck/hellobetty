@@ -10,7 +10,7 @@ import {
   Clock3,
   FileAudio,
   Mic,
-  Archive,
+  CircleStop,
   Pause,
   Play,
   Square,
@@ -569,11 +569,12 @@ export default function HomeworkPage() {
   function homeworkStatusLabel(status: string) {
     if (status === "PUBLISHED") return "发布中";
     if (status === "PAUSED") return "已暂停";
-    if (status === "ARCHIVED") return "已归档";
+    if (status === "ARCHIVED") return "已结束";
     return status;
   }
 
   async function updateHomeworkStatus(homework: Homework, status: "PUBLISHED" | "PAUSED" | "ARCHIVED") {
+    if (status === "ARCHIVED" && !window.confirm(`确认结束作业“${homework.title}”？结束后不能恢复，学生端将显示为已封存。`)) return;
     setError("");
     setNotice("");
     try {
@@ -711,7 +712,7 @@ export default function HomeworkPage() {
       </form>
       <section className="panel homework-history" aria-labelledby="history-title">
         <div className="panel-header"><h2 id="history-title">已发布作业</h2><span className="header-user">最近 {homeworks.length} 条</span></div>
-        <div className="table-wrap"><table className="homework-table"><thead><tr><th>作业</th><th>班级</th><th>模板</th><th>周期</th><th>学生</th><th>进度</th><th>状态</th><th>首次触发</th><th>操作</th></tr></thead><tbody>{homeworks.length === 0 ? <tr><td colSpan={9} className="empty">还没有发布作业</td></tr> : homeworks.map((homework) => <tr key={homework.id}><td>{homework.title}</td><td>{homework.classroomName ?? "未限定"}</td><td>{templateLabel(homework.templateType)}</td><td>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"}，共 {homework.occurrenceLimit} 次</td><td>{homework.targetCount} 名</td><td>{homework.completedOccurrenceCount ?? 0} / {homework.occurrenceCount} 次</td><td><span className="status">{homeworkStatusLabel(homework.status)}</span></td><td>{new Date(homework.startsAt).toLocaleString("zh-CN")}</td><td><div className="inline-actions">{homework.status === "PUBLISHED" ? <button className="table-icon-button" type="button" title="暂停作业" aria-label={`暂停 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PAUSED")}><Pause size={16} /></button> : null}{homework.status === "PAUSED" ? <button className="table-icon-button" type="button" title="恢复作业" aria-label={`恢复 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PUBLISHED")}><Play size={16} /></button> : null}{homework.status !== "ARCHIVED" ? <button className="table-icon-button" type="button" title="归档作业" aria-label={`归档 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "ARCHIVED")}><Archive size={16} /></button> : <span className="table-muted">-</span>}</div></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="homework-table"><thead><tr><th>作业</th><th>班级</th><th>模板</th><th>周期</th><th>学生</th><th>进度</th><th>状态</th><th>首次触发</th><th>操作</th></tr></thead><tbody>{homeworks.length === 0 ? <tr><td colSpan={9} className="empty">还没有发布作业</td></tr> : homeworks.map((homework) => <tr key={homework.id}><td>{homework.title}</td><td>{homework.classroomName ?? "未限定"}</td><td>{templateLabel(homework.templateType)}</td><td>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"}，共 {homework.occurrenceLimit} 次</td><td>{homework.targetCount} 名</td><td>{homework.completedOccurrenceCount ?? 0} / {homework.occurrenceCount} 次</td><td><span className="status">{homeworkStatusLabel(homework.status)}</span></td><td>{new Date(homework.startsAt).toLocaleString("zh-CN")}</td><td><div className="inline-actions">{homework.status === "PUBLISHED" ? <button className="table-icon-button" type="button" title="暂停作业" aria-label={`暂停 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PAUSED")}><Pause size={16} /></button> : null}{homework.status === "PAUSED" ? <button className="table-icon-button" type="button" title="恢复作业" aria-label={`恢复 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PUBLISHED")}><Play size={16} /></button> : null}{homework.status !== "ARCHIVED" ? <button className="table-icon-button" type="button" title="结束作业" aria-label={`结束 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "ARCHIVED")}><CircleStop size={16} /></button> : <span className="table-muted">-</span>}</div></td></tr>)}</tbody></table></div>
       </section>
       <section className="panel homework-history" aria-labelledby="review-title">
         <div className="panel-header"><h2 id="review-title">朗读提交</h2><div className="review-toolbar"><span className="header-user">待批改 {submissions.filter((submission) => submission.status === "DONE").length} · 已批改 {submissions.filter((submission) => submission.status === "GRADED").length}</span><button className={`table-icon-button ${reviewFilter === "DONE" ? "active-icon-button" : ""}`} type="button" title="查看待批改录音" aria-label="查看待批改录音" onClick={() => setReviewFilter("DONE")}><Clock3 size={17} /></button><button className={`table-icon-button ${reviewFilter === "GRADED" ? "active-icon-button" : ""}`} type="button" title="查看已批改录音" aria-label="查看已批改录音" onClick={() => setReviewFilter("GRADED")}><CheckCircle2 size={17} /></button></div></div>

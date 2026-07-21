@@ -43,8 +43,8 @@ Homework operations:
 
 - Publishing accepts optional `classroomId`. It is required for teachers and validates every recipient against that classroom.
 - `GET /api/admin/homeworks` is scoped and returns target, occurrence, and completed-occurrence counts.
-- `PATCH /api/admin/homeworks/:homeworkId/status` supports `PUBLISHED`, `PAUSED`, and terminal `ARCHIVED` transitions.
-- Paused or archived homework is hidden from student lists and rejects detail, submission, answer, session start, and session completion without crediting learning time.
+- `PATCH /api/admin/homeworks/:homeworkId/status` supports `PUBLISHED`, `PAUSED`, and terminal `ARCHIVED` transitions; the terminal transition is the staff `结束作业` action.
+- Paused or ended homework is hidden from current student lists and rejects detail, submission, answer, session start, and session completion without crediting learning time. Ended work remains in student history as `已封存`.
 
 Assessment operations:
 
@@ -57,7 +57,8 @@ Assessment operations:
 
 - The web console provides separate, scan-friendly account/classroom and assessment operations views.
 - Homework publishing requires teachers to select a classroom before selecting students; administrators may use an unscoped workflow.
-- Homework history exposes progress and icon actions for pause, resume, and archive.
+- Homework history exposes progress and icon actions for pause, resume, and confirmed terminal end.
+- The mobile staff workspace includes paginated published-homework history and classroom management. Teachers inspect assigned classrooms; administrators create, edit membership, archive, and restore classrooms.
 - The assessment view distinguishes provider-unconfigured, queued, processing, failed, and completed states and offers retry only for failed work.
 - Mobile teacher publishing loads only authorized classrooms/students and includes `classroomId` in publication.
 

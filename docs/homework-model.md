@@ -13,7 +13,7 @@ The teacher-owned plan:
 - `publisherId`: teacher or administrator that published it.
 - `classroomId`: the owning classroom for new teacher-published homework; administrators may leave it null for exceptional or legacy flows.
 - `title`, `instructions`: student-facing summary and instructions.
-- `status`: starts as `PUBLISHED`; `PAUSED` hides and blocks student work without deleting history, while `ARCHIVED` is terminal.
+- `status`: starts as `PUBLISHED`; `PAUSED` hides and blocks student work without deleting history. A staff end action writes terminal `ARCHIVED`, shown as `已结束` to staff and `已封存` in student history.
 - `startsAt`: UTC timestamp for the first trigger.
 - `repeatUnit`: `DAY` or `WEEK`.
 - `repeatInterval`: number of units between triggers, from 1 to 52.
@@ -33,7 +33,7 @@ One scheduled instance for one recipient. It contains:
 
 Future student submissions and teacher grading must refer to a `HomeworkOccurrence`, not directly to the reusable `Homework` plan.
 
-Staff progress is derived as completed occurrences divided by all generated occurrences for the plan. Pausing or archiving does not remove recipients, occurrences, submissions, reviews, or assessment results.
+Staff progress is derived as completed occurrences divided by all generated occurrences for the plan. Pausing or ending does not remove recipients, occurrences, submissions, reviews, or assessment results.
 
 ### Classroom
 

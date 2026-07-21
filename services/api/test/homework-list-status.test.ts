@@ -24,6 +24,66 @@ function schedule() {
 }
 
 describe("student homework list status summaries", () => {
+  it("limits the current list to five Shanghai calendar days while history remains complete", async () => {
+    const student = store.createUser({
+      phone: "13580135799",
+      displayName: "Betty",
+      passwordHash: await hashPassword("StudentPass123"),
+      role: USER_ROLES.STUDENT,
+    });
+    const teacher = store.createUser({
+      phone: "13680136799",
+      displayName: "Ms. Lin",
+      passwordHash: await hashPassword("TeacherPass123"),
+      role: USER_ROLES.TEACHER,
+    });
+    const currentTime = new Date("2026-07-20T04:00:00.000Z");
+
+    store.createPublishedHomework({
+      publisherId: teacher.id,
+      title: "Six daily sentences",
+      studentIds: [student.id],
+      templateType: HOMEWORK_TEMPLATE_TYPES.SENTENCE_READ_ALOUD,
+      items: [{ promptText: "Hello, Betty.", sampleAudioUrl: "/uploads/assets/sentence.mp3" }],
+      schedule: {
+        startsAt: "2026-07-15T04:00:00.000Z",
+        unit: "DAY",
+        interval: 1,
+        occurrenceLimit: 6,
+      },
+    });
+    store.createPublishedHomework({
+      publisherId: teacher.id,
+      title: "Six daily pages",
+      studentIds: [student.id],
+      templateType: HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK,
+      cards: [{ imageUrl: "/uploads/assets/page.png", sampleAudioUrl: "/uploads/assets/page.mp3", referenceText: "Hello." }],
+      schedule: {
+        startsAt: "2026-07-15T04:00:00.000Z",
+        unit: "DAY",
+        interval: 1,
+        occurrenceLimit: 6,
+      },
+    });
+
+    const current = store.listStudentPracticeOccurrences(student.id, currentTime);
+    const currentReading = store.listStudentReadingOccurrences(student.id, currentTime);
+    const expectedDates = [
+      "2026-07-16",
+      "2026-07-17",
+      "2026-07-18",
+      "2026-07-19",
+      "2026-07-20",
+    ];
+    expect(current).toHaveLength(5);
+    expect(currentReading).toHaveLength(5);
+    expect(current.map((occurrence) => occurrence.scheduledAt.slice(0, 10))).toEqual(expectedDates);
+    expect(currentReading.map((occurrence) => occurrence.scheduledAt.slice(0, 10))).toEqual(expectedDates);
+    const history = store.listStudentHomeworkHistory({ studentId: student.id, page: 1, pageSize: 20, currentTime });
+    expect(history.pagination.total).toBe(12);
+    expect(history.occurrences).toHaveLength(12);
+  });
+
   it("returns each due recurring trigger as an independent homework row", async () => {
     const student = store.createUser({
       phone: "13580135800",

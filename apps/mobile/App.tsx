@@ -30,6 +30,7 @@ import {
   apiBaseUrl,
   ApiError,
   completeHomeworkSession,
+  createStaffClassroom,
   getPracticeHomeworks,
   getPracticeOccurrence,
   getStudentHomeworkHistory,
@@ -39,7 +40,9 @@ import {
   getReadingOccurrence,
   getStaffClassrooms,
   getStaffContext,
+  getStaffHomeworkHistory,
   getStaffStudents,
+  getStaffTeachers,
   getTeacherPracticeRecordingSubmissions,
   getTeacherReadingSubmissions,
   homeworkTemplateTypes,
@@ -58,6 +61,7 @@ import {
   type SpeechAssessment,
   type StaffClassroom,
   type StaffContext,
+  type StaffHomeworkSummary,
   type StaffStudent,
   type StudentHomeworkHistoryItem,
   type StudentPointEvent,
@@ -71,6 +75,8 @@ import {
   submitReadingAudio,
   startHomeworkSession,
   updateStudentProfile,
+  updateStaffClassroom,
+  updateStaffHomeworkStatus,
   uploadHomeworkAsset,
 } from "./src/lib/api";
 import {
@@ -86,6 +92,18 @@ type AuthMode = "login" | "register";
 type StudentView = "home" | "profile" | "reading" | "practice";
 type ProfileTab = "PROFILE" | "LEARNING" | "HISTORY";
 type HomeworkListStatus = "UNVIEWED" | "INCOMPLETE" | "COMPLETED" | "REVIEWED";
+type HomeworkSortMode = "DATE" | "STATUS";
+type StudentHomeworkListItem = {
+  id: string;
+  title: string;
+  scheduledAt: string;
+  kind: "READING" | "PRACTICE";
+  status: HomeworkListStatus;
+  summary: string;
+  completedCount: number;
+  totalCount: number;
+  requiresReview: boolean;
+};
 type NextHomeworkDestination = {
   id: string;
   title: string;
@@ -111,6 +129,12 @@ const homeworkStatusMeta = {
   INCOMPLETE: { label: "未完成", icon: "hourglass-outline" as const, color: "#a86412" },
   COMPLETED: { label: "已完成", icon: "checkmark-circle-outline" as const, color: "#28789e" },
   REVIEWED: { label: "老师已批改", icon: "ribbon-outline" as const, color: "#2e7d4f" },
+};
+const homeworkStatusOrder: Record<HomeworkListStatus, number> = {
+  UNVIEWED: 0,
+  INCOMPLETE: 1,
+  COMPLETED: 2,
+  REVIEWED: 3,
 };
 const assessmentPollIntervalMs = 4000;
 const assessmentObservationWindowMs = 5 * 60 * 1000;
@@ -167,11 +191,14 @@ function getHomeworkListStatus(input: { hasViewed: boolean; completedCount: numb
   return "INCOMPLETE";
 }
 
-function HomeworkStatusIndicator({ status }: { status: HomeworkListStatus }) {
+function HomeworkStatusIndicator({ status, completedCount, totalCount }: { status: HomeworkListStatus; completedCount: number; totalCount: number }) {
   const meta = homeworkStatusMeta[status];
-  return <View accessible accessibilityLabel={`作业状态：${meta.label}`} style={styles.homeworkStatus}>
-    <Ionicons name={meta.icon} color={meta.color} size={16} />
-    <Text style={[styles.homeworkStatusText, { color: meta.color }]}>{meta.label}</Text>
+  return <View accessible accessibilityLabel={`作业状态：${meta.label}，已完成 ${completedCount}/${totalCount}`} style={styles.homeworkStatusSummary}>
+    <Text style={styles.homeworkStatusProgress}>{completedCount}/{totalCount}</Text>
+    <View style={styles.homeworkStatus}>
+      <Ionicons name={meta.icon} color={meta.color} size={16} />
+      <Text style={[styles.homeworkStatusText, { color: meta.color }]}>{meta.label}</Text>
+    </View>
   </View>;
 }
 
@@ -185,7 +212,49 @@ function homeworkListAction(status: HomeworkListStatus, requiresReview: boolean)
 function homeworkDispatchDate(scheduledAt: string) {
   const date = new Date(scheduledAt);
   if (Number.isNaN(date.getTime())) return scheduledAt;
-  return `${date.getMonth() + 1}月${date.getDate()}日派发`;
+  const shanghaiDate = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return `${shanghaiDate.getUTCMonth() + 1}月${shanghaiDate.getUTCDate()}日`;
+}
+
+function buildStudentHomeworkList(
+  readingHomeworks: ReadingHomeworkSummary[],
+  practiceHomeworks: PracticeHomeworkSummary[],
+  sortMode: HomeworkSortMode,
+): StudentHomeworkListItem[] {
+  const items: StudentHomeworkListItem[] = [
+    ...readingHomeworks.map((homework) => ({
+      id: homework.id,
+      title: homework.title,
+      scheduledAt: homework.scheduledAt,
+      kind: "READING" as const,
+      status: getHomeworkListStatus({ hasViewed: homework.hasViewed, completedCount: homework.submittedCardCount, totalCount: homework.cardCount, reviewedCount: homework.reviewedCardCount, requiresReview: true }),
+      summary: "跟读绘本",
+      completedCount: homework.submittedCardCount,
+      totalCount: homework.cardCount,
+      requiresReview: true,
+    })),
+    ...practiceHomeworks.map((homework) => {
+      const requiresReview = recordingTemplates.includes(homework.templateType);
+      return {
+        id: homework.id,
+        title: homework.title,
+        scheduledAt: homework.scheduledAt,
+        kind: "PRACTICE" as const,
+        status: getHomeworkListStatus({ hasViewed: homework.hasViewed, completedCount: homework.completedItemCount, totalCount: homework.itemCount, reviewedCount: homework.reviewedItemCount, requiresReview }),
+        summary: templateLabels[homework.templateType],
+        completedCount: homework.completedItemCount,
+        totalCount: homework.itemCount,
+        requiresReview,
+      };
+    }),
+  ];
+  return items.sort((left, right) => {
+    if (sortMode === "STATUS") {
+      const statusDifference = homeworkStatusOrder[left.status] - homeworkStatusOrder[right.status];
+      if (statusDifference !== 0) return statusDifference;
+    }
+    return right.scheduledAt.localeCompare(left.scheduledAt) || right.id.localeCompare(left.id);
+  });
 }
 
 function isNextHomeworkComplete(homework: NextHomeworkDestination) {
@@ -463,6 +532,7 @@ function StudentHome({
 }) {
   const [homeworks, setHomeworks] = useState<ReadingHomeworkSummary[]>([]);
   const [practiceHomeworks, setPracticeHomeworks] = useState<PracticeHomeworkSummary[]>([]);
+  const [sortMode, setSortMode] = useState<HomeworkSortMode>("DATE");
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
 
@@ -475,6 +545,8 @@ function StudentHome({
       .catch((cause) => setMessage(cause instanceof ApiError ? cause.message : "无法加载作业列表"))
       .finally(() => setIsLoading(false));
   }, [token]);
+
+  const homeworkItems = buildStudentHomeworkList(homeworks, practiceHomeworks, sortMode);
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -489,27 +561,29 @@ function StudentHome({
         <Text style={styles.heroTitle}>今天，先从一句英语开始。</Text>
         <Text style={styles.heroText}>跟着绘本听一听、说一说，完成今天的英语练习。</Text>
       </View>
-      <Text style={styles.sectionTitle}>我的作业</Text>
+      <View style={styles.homeworkSectionHeader}>
+        <Text style={[styles.sectionTitle, styles.homeworkSectionTitle]}>我的作业</Text>
+        <View style={styles.homeworkSortControl}>
+          {(["DATE", "STATUS"] as const).map((mode) => <Pressable
+            key={mode}
+            accessibilityLabel={mode === "DATE" ? "按日期排序" : "按状态排序"}
+            accessibilityState={{ selected: sortMode === mode }}
+            style={[styles.homeworkSortOption, sortMode === mode && styles.homeworkSortOptionActive]}
+            onPress={() => setSortMode(mode)}
+          >
+            <Ionicons name={mode === "DATE" ? "calendar-outline" : "list-outline"} color={sortMode === mode ? colors.text : colors.muted} size={14} />
+            <Text style={[styles.homeworkSortText, sortMode === mode && styles.homeworkSortTextActive]}>{mode === "DATE" ? "日期" : "状态"}</Text>
+          </Pressable>)}
+        </View>
+      </View>
       <View>
         {isLoading ? <ActivityIndicator color={colors.text} /> : null}
-        {!isLoading && homeworks.length === 0 && practiceHomeworks.length === 0 ? <Text style={styles.emptyHomework}>老师暂时还没有布置练习。</Text> : null}
-        {homeworks.map((homework) => {
-          const status = getHomeworkListStatus({ hasViewed: homework.hasViewed, completedCount: homework.submittedCardCount, totalCount: homework.cardCount, reviewedCount: homework.reviewedCardCount, requiresReview: true });
-          return <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => onOpenReading(homework.id)}>
-            <View style={styles.previewHeader}><Text style={[styles.previewTitle, styles.previewTitleInRow]}>{homework.title}</Text><HomeworkStatusIndicator status={status} /></View>
-            <Text style={styles.previewText}>跟读绘本 · {homework.submittedCardCount}/{homework.cardCount} 张已完成</Text>
-            <View style={styles.homeworkFooter}><Text style={styles.homeworkAction}>{homeworkListAction(status, true)}</Text><Text style={styles.homeworkDispatchDate}>{homeworkDispatchDate(homework.scheduledAt)}</Text></View>
-          </Pressable>;
-        })}
-        {practiceHomeworks.map((homework) => {
-          const requiresReview = recordingTemplates.includes(homework.templateType);
-          const status = getHomeworkListStatus({ hasViewed: homework.hasViewed, completedCount: homework.completedItemCount, totalCount: homework.itemCount, reviewedCount: homework.reviewedItemCount, requiresReview });
-          return <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => onOpenPractice(homework.id)}>
-            <View style={styles.previewHeader}><Text style={[styles.previewTitle, styles.previewTitleInRow]}>{homework.title}</Text><HomeworkStatusIndicator status={status} /></View>
-            <Text style={styles.previewText}>{templateLabels[homework.templateType]} · {homework.completedItemCount}/{homework.itemCount} 题已完成</Text>
-            <View style={styles.homeworkFooter}><Text style={styles.homeworkAction}>{homeworkListAction(status, requiresReview)}</Text><Text style={styles.homeworkDispatchDate}>{homeworkDispatchDate(homework.scheduledAt)}</Text></View>
-          </Pressable>;
-        })}
+        {!isLoading && homeworkItems.length === 0 ? <Text style={styles.emptyHomework}>最近 5 天没有作业。</Text> : null}
+        {homeworkItems.map((homework) => <Pressable key={homework.id} style={({ pressed }) => [styles.previewRow, pressed && styles.pressedState]} onPress={() => homework.kind === "READING" ? onOpenReading(homework.id) : onOpenPractice(homework.id)}>
+          <View style={styles.previewHeader}><Text style={[styles.previewTitle, styles.previewTitleInRow]}>{homework.title}</Text><HomeworkStatusIndicator status={homework.status} completedCount={homework.completedCount} totalCount={homework.totalCount} /></View>
+          <Text style={styles.previewText}>{homework.summary}</Text>
+          <View style={styles.homeworkFooter}><Text style={styles.homeworkAction}>{homeworkListAction(homework.status, homework.requiresReview)}</Text><Text style={styles.homeworkDispatchDate}>{homeworkDispatchDate(homework.scheduledAt)}</Text></View>
+        </Pressable>)}
         {message ? <Text style={styles.readingMessage}>{message}</Text> : null}
       </View>
     </ScrollView>
@@ -849,6 +923,212 @@ function PracticeWorkspace({ token, occurrenceId, onBack, onOpenReading, onOpenP
   </View>;
 }
 
+const staffHomeworkStatusMeta = {
+  PUBLISHED: { label: "进行中", icon: "radio-button-on-outline" as const },
+  PAUSED: { label: "已暂停", icon: "pause-circle-outline" as const },
+  ARCHIVED: { label: "已结束", icon: "stop-circle-outline" as const },
+};
+
+function staffTemplateLabel(templateType: StaffHomeworkSummary["templateType"]) {
+  return templateType === "STANDARD" ? "标准作业" : templateLabels[templateType];
+}
+
+function staffDateLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const shanghai = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${shanghai.getUTCFullYear()}/${pad(shanghai.getUTCMonth() + 1)}/${pad(shanghai.getUTCDate())} ${pad(shanghai.getUTCHours())}:${pad(shanghai.getUTCMinutes())}`;
+}
+
+function TeacherHomeworkHistory({ token, onBack, onLogout }: { token: string; onBack: () => void; onLogout: () => void }) {
+  const [homeworks, setHomeworks] = useState<StaffHomeworkSummary[]>([]);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<StaffHomeworkSummary | null>(null);
+  const [message, setMessage] = useState("");
+
+  const load = async (nextPage = 1) => {
+    if (nextPage === 1) setIsLoading(true);
+    else setIsLoadingMore(true);
+    try {
+      const body = await getStaffHomeworkHistory(token, nextPage, 20);
+      setHomeworks((current) => nextPage === 1
+        ? body.homeworks
+        : [...current, ...body.homeworks.filter((homework) => !current.some((item) => item.id === homework.id))]);
+      setPage(body.pagination.page);
+      setTotal(body.pagination.total);
+      setMessage("");
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : "无法加载发布历史");
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, [token]);
+
+  const updateStatus = async (homework: StaffHomeworkSummary, status: "PUBLISHED" | "PAUSED" | "ARCHIVED") => {
+    setUpdatingId(homework.id);
+    try {
+      const body = await updateStaffHomeworkStatus(token, homework.id, status);
+      setHomeworks((current) => current.map((item) => item.id === homework.id ? body.homework : item));
+      const resultLabel = status === "PUBLISHED" ? "已恢复" : status === "PAUSED" ? "已暂停" : "已结束";
+      setMessage(`作业“${homework.title}”${resultLabel}。`);
+      setArchiveTarget(null);
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : "作业状态更新失败");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  return <View style={styles.screen}>
+    <View style={styles.readingHeader}>
+      <Pressable accessibilityLabel="返回老师工作台" style={styles.headerIconButton} onPress={onBack}><Ionicons name="chevron-back" color={colors.text} size={23} /></Pressable>
+      <Text style={styles.readingTitle}>历史发布作业</Text>
+      <View style={styles.teacherHeaderActions}><Pressable accessibilityLabel="刷新发布历史" style={styles.headerIconButton} onPress={() => void load(1)}><Ionicons name="refresh-outline" color={colors.text} size={21} /></Pressable><Pressable accessibilityLabel="退出登录" style={styles.headerIconButton} onPress={onLogout}><Ionicons name="log-out-outline" color={colors.text} size={21} /></Pressable></View>
+    </View>
+    <ScrollView contentContainerStyle={styles.staffPageContent}>
+      <View style={styles.staffPageSummary}><Text style={styles.sectionTitle}>已发布作业</Text><Text style={styles.previewText}>共 {total} 份</Text></View>
+      {isLoading ? <ActivityIndicator color={colors.text} /> : null}
+      {!isLoading && homeworks.length === 0 ? <Text style={styles.emptyHomework}>还没有发布过作业。</Text> : null}
+      {homeworks.map((homework) => {
+        const status = staffHomeworkStatusMeta[homework.status];
+        return <View key={homework.id} style={styles.staffHistoryCard}>
+          <View style={styles.staffHistoryTitleRow}><View style={styles.checkinDetails}><Text style={styles.previewTitle}>{homework.title}</Text><Text style={styles.previewText}>{homework.classroomName ?? "未限定班级"} · {staffTemplateLabel(homework.templateType)}</Text></View><View style={styles.staffStatusLabel}><Ionicons name={status.icon} color={colors.muted} size={16} /><Text style={styles.historyStatus}>{status.label}</Text></View></View>
+          <Text style={styles.previewTag}>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"} · 共 {homework.occurrenceLimit} 次 · {homework.targetCount} 名学生</Text>
+          <View style={styles.staffProgressRow}><Text style={styles.staffProgressText}>{homework.completedOccurrenceCount}/{homework.occurrenceCount}</Text><Text style={styles.previewText}>已完成实例</Text></View>
+          <View style={styles.staffHistoryFooter}><Text style={styles.homeworkDispatchDate}>{staffDateLabel(homework.publishedAt)}</Text><View style={styles.staffInlineActions}>{homework.status === "PUBLISHED" ? <Pressable accessibilityLabel={`暂停 ${homework.title}`} disabled={updatingId === homework.id} style={({ pressed }) => [styles.smallOutlineIconButton, pressed && styles.pressedState]} onPress={() => void updateStatus(homework, "PAUSED")}><Ionicons name="pause" color={colors.text} size={18} /></Pressable> : null}{homework.status === "PAUSED" ? <Pressable accessibilityLabel={`恢复 ${homework.title}`} disabled={updatingId === homework.id} style={({ pressed }) => [styles.smallOutlineIconButton, pressed && styles.pressedState]} onPress={() => void updateStatus(homework, "PUBLISHED")}><Ionicons name="play" color={colors.text} size={18} /></Pressable> : null}{homework.status !== "ARCHIVED" ? <Pressable accessibilityLabel={`结束 ${homework.title}`} disabled={updatingId === homework.id} style={({ pressed }) => [styles.smallOutlineIconButton, pressed && styles.pressedState]} onPress={() => setArchiveTarget(homework)}><Ionicons name="stop-circle-outline" color={colors.text} size={19} /></Pressable> : null}</View></View>
+        </View>;
+      })}
+      {homeworks.length < total ? <Pressable style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressedState]} disabled={isLoadingMore} onPress={() => void load(page + 1)}>{isLoadingMore ? <ActivityIndicator color={colors.text} /> : <Text style={styles.secondaryButtonText}>加载更多</Text>}</Pressable> : null}
+      {message ? <Text style={styles.readingMessage}>{message}</Text> : null}
+    </ScrollView>
+    <Modal visible={archiveTarget !== null} transparent animationType="fade" onRequestClose={() => setArchiveTarget(null)}><SafeAreaView style={styles.modalSafeArea}><View style={styles.modalBackdrop}><View style={styles.confirmModal}><Text style={styles.sectionTitle}>结束作业</Text><Text style={styles.chatTeacherText}>结束后不能恢复，学生下次登录将在作业历史中看到“已封存”，也不能继续提交“{archiveTarget?.title}”。</Text><View style={styles.confirmActions}><Pressable style={styles.secondaryCommandButton} onPress={() => setArchiveTarget(null)}><Text style={styles.secondaryButtonText}>取消</Text></Pressable><Pressable style={styles.primaryCommandButton} disabled={!archiveTarget || updatingId === archiveTarget.id} onPress={() => archiveTarget && void updateStatus(archiveTarget, "ARCHIVED")}><Ionicons name="stop-circle-outline" color={colors.text} size={19} /><Text style={styles.primaryButtonText}>确认结束</Text></Pressable></View></View></View></SafeAreaView></Modal>
+  </View>;
+}
+
+function TeacherClassroomWorkspace({ token, role, onBack, onLogout }: { token: string; role: StaffRole; onBack: () => void; onLogout: () => void }) {
+  const [classrooms, setClassrooms] = useState<StaffClassroom[]>([]);
+  const [teachers, setTeachers] = useState<StaffStudent[]>([]);
+  const [students, setStudents] = useState<StaffStudent[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [teacherIds, setTeacherIds] = useState<string[]>([]);
+  const [studentIds, setStudentIds] = useState<string[]>([]);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<StaffClassroom | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+
+  const load = async () => {
+    setIsLoading(true);
+    try {
+      const classroomBody = await getStaffClassrooms(token);
+      setClassrooms(classroomBody.classrooms);
+      if (role === "ADMIN") {
+        const [teacherBody, studentBody] = await Promise.all([getStaffTeachers(token), getStaffStudents(token)]);
+        setTeachers(teacherBody.users.filter((user) => !user.status || isActiveStatus(user.status)));
+        setStudents(studentBody.users.filter((user) => !user.status || isActiveStatus(user.status)));
+      }
+      setMessage("");
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : "无法加载班级");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, [role, token]);
+
+  const openCreate = () => {
+    setEditingId(null);
+    setName("");
+    setTeacherIds([]);
+    setStudentIds([]);
+    setEditorVisible(true);
+  };
+
+  const openEdit = (classroom: StaffClassroom) => {
+    setEditingId(classroom.id);
+    setName(classroom.name);
+    setTeacherIds(classroom.teachers.filter((member) => isActiveStatus(member.status)).map((member) => member.id));
+    setStudentIds(classroom.students.filter((member) => isActiveStatus(member.status)).map((member) => member.id));
+    setEditorVisible(true);
+  };
+
+  const toggleId = (id: string, ids: string[], setIds: (next: string[]) => void) => {
+    setIds(ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]);
+  };
+
+  const save = async () => {
+    if (!name.trim()) {
+      setMessage("请输入班级名称。");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const successMessage = editingId ? "班级信息已保存。" : "班级已创建。";
+      if (editingId) await updateStaffClassroom(token, editingId, { name: name.trim(), teacherIds, studentIds });
+      else await createStaffClassroom(token, { name: name.trim(), teacherIds, studentIds });
+      setEditorVisible(false);
+      await load();
+      setMessage(successMessage);
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : "班级保存失败");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateStatus = async (classroom: StaffClassroom, status: "ACTIVE" | "ARCHIVED") => {
+    setUpdatingId(classroom.id);
+    try {
+      const body = await updateStaffClassroom(token, classroom.id, { status });
+      setClassrooms((current) => current.map((item) => item.id === classroom.id ? body.classroom : item));
+      setMessage(status === "ACTIVE" ? "班级已恢复。" : "班级已归档。");
+      setArchiveTarget(null);
+    } catch (cause) {
+      setMessage(cause instanceof ApiError ? cause.message : "班级状态更新失败");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  return <View style={styles.screen}>
+    <View style={styles.readingHeader}>
+      <Pressable accessibilityLabel="返回老师工作台" style={styles.headerIconButton} onPress={onBack}><Ionicons name="chevron-back" color={colors.text} size={23} /></Pressable>
+      <Text style={styles.readingTitle}>班级管理</Text>
+      <View style={styles.teacherHeaderActions}>{role === "ADMIN" ? <Pressable accessibilityLabel="新建班级" style={styles.headerIconButton} onPress={openCreate}><Ionicons name="add" color={colors.text} size={23} /></Pressable> : null}<Pressable accessibilityLabel="刷新班级" style={styles.headerIconButton} onPress={() => void load()}><Ionicons name="refresh-outline" color={colors.text} size={21} /></Pressable><Pressable accessibilityLabel="退出登录" style={styles.headerIconButton} onPress={onLogout}><Ionicons name="log-out-outline" color={colors.text} size={21} /></Pressable></View>
+    </View>
+    <ScrollView contentContainerStyle={styles.staffPageContent}>
+      <View style={styles.staffPageSummary}><Text style={styles.sectionTitle}>{role === "ADMIN" ? "全部班级" : "我的班级"}</Text><Text style={styles.previewText}>共 {classrooms.length} 个</Text></View>
+      {isLoading ? <ActivityIndicator color={colors.text} /> : null}
+      {!isLoading && classrooms.length === 0 ? <Text style={styles.emptyHomework}>当前没有班级。</Text> : null}
+      {classrooms.map((classroom) => {
+        const expanded = expandedId === classroom.id;
+        const active = isActiveStatus(classroom.status);
+        return <View key={classroom.id} style={styles.staffClassroomCard}>
+          <Pressable style={({ pressed }) => [styles.staffClassroomHeader, pressed && styles.pressedState]} onPress={() => setExpandedId(expanded ? null : classroom.id)}><View style={styles.staffClassroomIcon}><Ionicons name="people" color={colors.text} size={20} /></View><View style={styles.checkinDetails}><View style={styles.historyTitleRow}><Text style={[styles.previewTitle, styles.historyTitleText]}>{classroom.name}</Text><Text style={styles.historyStatus}>{active ? "使用中" : "已归档"}</Text></View><Text style={styles.previewText}>{classroom.teacherCount} 名老师 · {classroom.studentCount} 名学生</Text></View><Ionicons name={expanded ? "chevron-up" : "chevron-down"} color={colors.muted} size={20} /></Pressable>
+          {expanded ? <View style={styles.staffMemberDetails}><Text style={styles.label}>老师</Text><Text style={styles.previewText}>{classroom.teachers.length ? classroom.teachers.map((member) => member.displayName).join("、") : "未分配"}</Text><Text style={styles.label}>学生</Text><Text style={styles.previewText}>{classroom.students.length ? classroom.students.map((member) => member.displayName).join("、") : "未分配"}</Text></View> : null}
+          {role === "ADMIN" ? <View style={styles.staffClassroomActions}>{active ? <Pressable accessibilityLabel={`编辑 ${classroom.name}`} style={({ pressed }) => [styles.smallOutlineIconButton, pressed && styles.pressedState]} onPress={() => openEdit(classroom)}><Ionicons name="pencil-outline" color={colors.text} size={18} /></Pressable> : null}{active ? <Pressable accessibilityLabel={`归档 ${classroom.name}`} disabled={updatingId === classroom.id} style={({ pressed }) => [styles.smallOutlineIconButton, pressed && styles.pressedState]} onPress={() => setArchiveTarget(classroom)}><Ionicons name="archive-outline" color={colors.text} size={18} /></Pressable> : <Pressable accessibilityLabel={`恢复 ${classroom.name}`} disabled={updatingId === classroom.id} style={({ pressed }) => [styles.smallOutlineIconButton, pressed && styles.pressedState]} onPress={() => void updateStatus(classroom, "ACTIVE")}><Ionicons name="refresh-outline" color={colors.text} size={18} /></Pressable>}</View> : null}
+        </View>;
+      })}
+      {message ? <Text style={styles.readingMessage}>{message}</Text> : null}
+    </ScrollView>
+    <Modal visible={editorVisible} transparent animationType="slide" onRequestClose={() => setEditorVisible(false)}><SafeAreaView style={styles.modalSafeArea}><View style={styles.modalBackdrop}><View style={[styles.readingModal, styles.staffEditorModal]}><View style={styles.modalTopRow}><Text style={styles.sectionTitle}>{editingId ? "编辑班级" : "新建班级"}</Text><Pressable accessibilityLabel="关闭班级编辑" style={styles.headerIconButton} onPress={() => setEditorVisible(false)}><Ionicons name="close" color={colors.text} size={22} /></Pressable></View><ScrollView style={styles.modalScroll} contentContainerStyle={styles.staffEditorContent} keyboardShouldPersistTaps="handled"><View style={styles.field}><Text style={styles.label}>班级名称</Text><TextInput style={styles.input} value={name} onChangeText={setName} placeholder="输入班级名称" placeholderTextColor={colors.faint} maxLength={80} /></View><Text style={styles.sectionTitle}>老师</Text>{teachers.length ? teachers.map((teacher) => <Pressable key={teacher.id} style={[styles.mobileStudentRow, teacherIds.includes(teacher.id) && styles.mobileStudentRowActive]} onPress={() => toggleId(teacher.id, teacherIds, setTeacherIds)}><View><Text style={styles.previewTitle}>{teacher.displayName}</Text><Text style={styles.previewText}>{teacher.phone}</Text></View><Ionicons name={teacherIds.includes(teacher.id) ? "checkmark-circle" : "ellipse-outline"} color={teacherIds.includes(teacher.id) ? colors.text : colors.faint} size={21} /></Pressable>) : <Text style={styles.emptyHomework}>没有可分配的老师。</Text>}<Text style={styles.sectionTitle}>学生</Text>{students.length ? students.map((student) => <Pressable key={student.id} style={[styles.mobileStudentRow, studentIds.includes(student.id) && styles.mobileStudentRowActive]} onPress={() => toggleId(student.id, studentIds, setStudentIds)}><View><Text style={styles.previewTitle}>{student.displayName}</Text><Text style={styles.previewText}>{student.phone}</Text></View><Ionicons name={studentIds.includes(student.id) ? "checkmark-circle" : "ellipse-outline"} color={studentIds.includes(student.id) ? colors.text : colors.faint} size={21} /></Pressable>) : <Text style={styles.emptyHomework}>没有可分配的学生。</Text>}<Pressable style={[styles.primaryCommandButton, isSaving && styles.primaryButtonDisabled]} disabled={isSaving} onPress={() => void save()}>{isSaving ? <ActivityIndicator color={colors.text} /> : <><Ionicons name="save-outline" color={colors.text} size={19} /><Text style={styles.primaryButtonText}>保存班级</Text></>}</Pressable></ScrollView></View></View></SafeAreaView></Modal>
+    <Modal visible={archiveTarget !== null} transparent animationType="fade" onRequestClose={() => setArchiveTarget(null)}><SafeAreaView style={styles.modalSafeArea}><View style={styles.modalBackdrop}><View style={styles.confirmModal}><Text style={styles.sectionTitle}>归档班级</Text><Text style={styles.chatTeacherText}>归档“{archiveTarget?.name}”后，老师不能再向这个班级发布作业。</Text><View style={styles.confirmActions}><Pressable style={styles.secondaryCommandButton} onPress={() => setArchiveTarget(null)}><Text style={styles.secondaryButtonText}>取消</Text></Pressable><Pressable style={styles.primaryCommandButton} disabled={!archiveTarget || updatingId === archiveTarget.id} onPress={() => archiveTarget && void updateStatus(archiveTarget, "ARCHIVED")}><Ionicons name="archive-outline" color={colors.text} size={18} /><Text style={styles.primaryButtonText}>确认归档</Text></Pressable></View></View></View></SafeAreaView></Modal>
+  </View>;
+}
+
 function TeacherReviewWorkspace({ token, userId, displayName, role, onLogout }: { token: string; userId: string; displayName: string; role: StaffRole; onLogout: () => void }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
@@ -859,7 +1139,7 @@ function TeacherReviewWorkspace({ token, userId, displayName, role, onLogout }: 
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
-  const [teacherMode, setTeacherMode] = useState<"REVIEW" | "PUBLISH">("REVIEW");
+  const [teacherMode, setTeacherMode] = useState<"REVIEW" | "PUBLISH" | "HISTORY" | "CLASSROOMS">("REVIEW");
   const [staffContext, setStaffContext] = useState<StaffContext | null>(null);
 
   const applySubmissions = (next: ReviewQueueItem[]) => {
@@ -959,9 +1239,15 @@ function TeacherReviewWorkspace({ token, userId, displayName, role, onLogout }: 
   if (teacherMode === "PUBLISH") {
     return <TeacherPublishWorkspace token={token} userId={userId} role={effectiveRole} onBack={() => setTeacherMode("REVIEW")} onLogout={onLogout} />;
   }
+  if (teacherMode === "HISTORY") {
+    return <TeacherHomeworkHistory token={token} onBack={() => setTeacherMode("REVIEW")} onLogout={onLogout} />;
+  }
+  if (teacherMode === "CLASSROOMS") {
+    return <TeacherClassroomWorkspace token={token} role={effectiveRole} onBack={() => setTeacherMode("REVIEW")} onLogout={onLogout} />;
+  }
 
   return <View style={styles.screen}>
-    <View style={styles.readingHeader}><Text style={styles.topBrand}>老师工作台</Text><View style={styles.teacherHeaderActions}><Pressable accessibilityLabel="批改跟读" style={[styles.headerIconButton, styles.headerIconButtonActive]} onPress={() => setTeacherMode("REVIEW")}><Ionicons name="checkmark-done-outline" color={colors.text} size={22} /></Pressable><Pressable accessibilityLabel="发布绘本作业" style={styles.headerIconButton} onPress={() => setTeacherMode("PUBLISH")}><Ionicons name="add-circle-outline" color={colors.text} size={23} /></Pressable><Pressable accessibilityLabel="退出登录" style={styles.headerIconButton} onPress={onLogout}><Ionicons name="log-out-outline" color={colors.text} size={22} /></Pressable></View></View>
+    <View style={styles.readingHeader}><Text style={styles.topBrand}>老师工作台</Text><View style={styles.teacherHeaderActions}><Pressable accessibilityLabel="批改作业" style={[styles.headerIconButton, styles.headerIconButtonActive]} onPress={() => setTeacherMode("REVIEW")}><Ionicons name="checkmark-done-outline" color={colors.text} size={22} /></Pressable><Pressable accessibilityLabel="发布作业" style={styles.headerIconButton} onPress={() => setTeacherMode("PUBLISH")}><Ionicons name="add-circle-outline" color={colors.text} size={23} /></Pressable><Pressable accessibilityLabel="历史发布作业" style={styles.headerIconButton} onPress={() => setTeacherMode("HISTORY")}><Ionicons name="time-outline" color={colors.text} size={22} /></Pressable><Pressable accessibilityLabel="班级管理" style={styles.headerIconButton} onPress={() => setTeacherMode("CLASSROOMS")}><Ionicons name="people-outline" color={colors.text} size={22} /></Pressable><Pressable accessibilityLabel="退出登录" style={styles.headerIconButton} onPress={onLogout}><Ionicons name="log-out-outline" color={colors.text} size={22} /></Pressable></View></View>
     <ScrollView contentContainerStyle={styles.chatContent}>
       <View style={styles.chatTeacher}><Text style={styles.chatTeacherText}>你好，{displayName}。这里是等待批改的学生跟读。</Text></View>
       {!providerConfigured ? <View style={styles.chatTeacher}><Text style={styles.chatTeacherText}>语音评估提供方尚未配置；机器评估状态仅作为当前状态展示，老师可以照常批改。</Text></View> : null}
@@ -1253,7 +1539,7 @@ function historyReviewText(item: StudentHomeworkHistoryItem) {
 
 function historyStatusText(item: StudentHomeworkHistoryItem) {
   if (item.homeworkStatus === "PAUSED") return "已暂停";
-  if (item.homeworkStatus === "ARCHIVED") return "已归档";
+  if (item.homeworkStatus === "ARCHIVED") return "已封存";
   const { completed, total } = historyProgress(item);
   if (item.occurrenceStatus === "COMPLETED" || (total > 0 && completed >= total)) return "已完成";
   return "进行中";
@@ -1409,10 +1695,10 @@ function Profile({ user, token, onBack, onLogout, onUserUpdate }: { user: Curren
       {tab === "HISTORY" ? <View style={styles.settingsSection}>
         <View style={styles.learningHeader}><View><Text style={styles.sectionTitle}>作业历史</Text><Text style={styles.previewText}>最新 50 条 · 共 {historyTotal} 条</Text></View><Pressable accessibilityLabel="刷新作业历史" style={styles.headerIconButton} onPress={loadHistory}><Ionicons name="refresh-outline" color={colors.text} size={20} /></Pressable></View>
         {isLoadingHistory ? <ActivityIndicator color={colors.text} /> : null}
-        {!isLoadingHistory && history.length === 0 ? <Text style={styles.emptyHomework}>还没有作业历史。完成一次练习后会出现在这里。</Text> : null}
+        {!isLoadingHistory && history.length === 0 ? <Text style={styles.emptyHomework}>还没有作业历史。</Text> : null}
         {history.map((item) => {
           const progress = historyProgress(item);
-          return <View key={item.id} style={styles.historyRow}><View style={styles.historyIcon}><Ionicons name={item.homeworkStatus === "ARCHIVED" ? "archive-outline" : item.homeworkStatus === "PAUSED" ? "pause-outline" : "book-outline"} color={colors.text} size={19} /></View><View style={styles.checkinDetails}><View style={styles.historyTitleRow}><Text style={[styles.previewTitle, styles.historyTitleText]}>{historyTitle(item)}</Text><Text style={styles.historyStatus}>{historyStatusText(item)}</Text></View><Text style={styles.previewText}>{templateLabels[item.templateType]} · {compactDateLabel(item.scheduledAt)}</Text><Text style={styles.previewTag}>进度 {progress.total ? `${progress.completed}/${progress.total}` : "暂无"} · {historyReviewText(item)}</Text></View></View>;
+          return <View key={item.id} style={styles.historyRow}><View style={styles.historyIcon}><Ionicons name={item.homeworkStatus === "ARCHIVED" ? "lock-closed-outline" : item.homeworkStatus === "PAUSED" ? "pause-outline" : "book-outline"} color={colors.text} size={19} /></View><View style={styles.checkinDetails}><View style={styles.historyTitleRow}><Text style={[styles.previewTitle, styles.historyTitleText]}>{historyTitle(item)}</Text><Text style={styles.historyStatus}>{historyStatusText(item)}</Text></View><Text style={styles.previewText}>{templateLabels[item.templateType]} · {compactDateLabel(item.scheduledAt)}</Text><Text style={styles.previewTag}>进度 {progress.total ? `${progress.completed}/${progress.total}` : "暂无"} · {historyReviewText(item)}</Text></View></View>;
         })}
         {historyMessage ? <Text style={styles.readingMessage}>{historyMessage}</Text> : null}
       </View> : null}

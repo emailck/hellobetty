@@ -16,7 +16,8 @@
 - Administrators provision teacher/student accounts and own classroom membership; teachers operate only active assigned classrooms plus legacy homework they originally published.
 - Publish homework, recipients, and occurrence records in one transaction; reject the full publish request when any selected student is invalid or inactive.
 - Teacher-published homework must include an active assigned classroom and active classroom students; administrators may publish without classroom ownership.
-- Homework `ARCHIVED` status is terminal; paused or archived homework is hidden from student lists and rejects student detail, submission, answer, and session operations.
+- Staff homework history is paginated newest-first and its total count must use the same database-derived classroom and legacy-publisher scope as the returned rows.
+- Ending homework writes terminal `ARCHIVED`; paused or ended homework is hidden from student lists and rejects student detail, submission, answer, and session operations, while ended occurrences remain in student history for clients to label `已封存`.
 - Restrict uploads by media type and file size, and enforce card order server-side for picture-book submissions.
 - Serve public homework assets only from `/uploads/assets/*`. Student recordings under `/uploads/submissions/*` and teacher feedback under `/uploads/feedback/*` require a valid active account; students may fetch only their own private audio while teachers and administrators may fetch scoped review audio.
 - A card's status is `UNMADE`, `DONE`, or `GRADED`, derived from its latest student submission and review metadata.
@@ -38,7 +39,7 @@
 - Record student learning days using the `Asia/Shanghai` calendar. Recording submissions create a check-in even when duration is omitted, and one submitted duration contributes at most 600 voice seconds.
 - Homework learning sessions use server start and completion times, complete only while the homework remains `PUBLISHED`, credit at most 7200 seconds, and add daily homework time exactly once when completion succeeds.
 - Student homework history includes all assigned occurrences scheduled up to now, including paused and archived parent homework.
-- Student homework list summaries return every due recurring occurrence independently with its `scheduledAt` dispatch timestamp, and expose whether it has a learning session plus completed and latest-submission reviewed counts so clients can distinguish unseen, incomplete, completed, and fully reviewed work without inferring server state.
+- Student homework list summaries return every due recurring occurrence from today and the preceding four `Asia/Shanghai` calendar days independently with its `scheduledAt` dispatch timestamp; older assigned occurrences remain available from homework history. Summaries expose whether an occurrence has a learning session plus completed and latest-submission reviewed counts so clients can distinguish unseen, incomplete, completed, and fully reviewed work without inferring server state.
 - Student learning statistics are account-private; staff statistics require an active `STUDENT` target.
 
 ## Work Guidance

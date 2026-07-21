@@ -18,7 +18,7 @@ Manual point balance overrides, point redemption, leaderboards, avatars, social 
 - Policy changes apply only to future events. The append-only ledger never recalculates or rewrites points already earned.
 - Each 100 accumulated points advances one growth level; points are never reduced in this milestone.
 - A student may edit display name, English name, school name, grade level, and a short learning goal. Phone, role, status, classroom membership, and account credentials are not editable here.
-- Homework history belongs to the authenticated student and includes assigned occurrences even when the parent homework is paused or archived.
+- Homework history belongs to the authenticated student and includes assigned occurrences even when the parent homework is paused or ended; ended `ARCHIVED` rows are displayed as `已封存`.
 
 ## Data And API Contract
 
@@ -59,6 +59,6 @@ Manual point balance overrides, point redemption, leaderboards, avatars, social 
 - Re-submission and repeated session completion leave the point balance unchanged.
 - A teacher cannot read or update another classroom's policy, and one policy replacement cannot partially apply.
 - Future check-in, completion, and configured streak events snapshot the classroom policy's value while past events remain unchanged.
-- Paused and archived assigned homework remains visible in personal history without becoming actionable.
+- Paused and sealed assigned homework remains visible in personal history without becoming actionable.
 - The learning view always renders seven dated values and distinguishes speaking from homework duration.
 - Existing accounts and pre-milestone databases migrate without losing users, homework, submissions, reviews, or statistics.

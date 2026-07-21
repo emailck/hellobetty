@@ -30,6 +30,11 @@ interface UserListQuery {
   role?: "TEACHER" | "STUDENT";
 }
 
+interface HomeworkListQuery {
+  page?: string;
+  pageSize?: string;
+}
+
 interface PublishHomeworkBody {
   title: string;
   instructions?: string;
@@ -134,6 +139,15 @@ const paginationQuerySchema = {
     pageSize: { type: "string", pattern: "^[0-9]+$" },
     search: { type: "string", maxLength: 40 },
     role: { type: "string", enum: ["TEACHER", "STUDENT"] },
+  },
+} as const;
+
+const homeworkPaginationQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    page: { type: "string", pattern: "^[0-9]+$" },
+    pageSize: { type: "string", pattern: "^[0-9]+$" },
   },
 } as const;
 
@@ -495,10 +509,20 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
       }
     });
 
-    app.get("/homeworks", { preHandler: (request, reply) => requireStaff(store, request, reply) }, async (request) => {
-      const user = (await getStaffUser(store, request))!;
-      return { homeworks: store.listPublishedHomeworks(20, getScope(user)) };
-    });
+    app.get<{ Querystring: HomeworkListQuery }>(
+      "/homeworks",
+      { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { querystring: homeworkPaginationQuerySchema } },
+      async (request) => {
+        const user = (await getStaffUser(store, request))!;
+        const page = Math.max(1, Number(request.query.page ?? 1));
+        const pageSize = Math.min(50, Math.max(1, Number(request.query.pageSize ?? 20)));
+        const scope = getScope(user);
+        return {
+          homeworks: store.listPublishedHomeworks(pageSize, scope, (page - 1) * pageSize),
+          pagination: { page, pageSize, total: store.countPublishedHomeworks(scope) },
+        };
+      },
+    );
 
     app.get("/read-aloud-submissions", { preHandler: (request, reply) => requireStaff(store, request, reply) }, async (request) => {
       const user = (await getStaffUser(store, request))!;

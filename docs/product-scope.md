@@ -8,7 +8,7 @@
 - Administrators can provision and enable or disable teacher/student accounts, create classrooms, and replace classroom teacher/student membership.
 - Teachers can see only assigned active classrooms and their active students. Staff authorization is resolved from the current database account and classroom membership rather than trusting a token role claim.
 - Administrators and teachers can publish recurring homework through the web console or mobile app. Teacher publication requires one assigned active classroom and recipients from that classroom; administrators may publish without classroom ownership.
-- Staff can view classroom-scoped homework completion progress, pause and resume published homework, and archive homework terminally without deleting its history.
+- Staff can view classroom-scoped homework completion progress, pause and resume published homework, and end homework terminally without deleting its history; students see ended work as `已封存` in history.
 - Administrators can publish multi-page picture-book read-aloud plans with English reference text, a paired image, and sample audio for each card.
 - Students complete a picture-book card one at a time, can play both sample and personal recordings, and can re-record completed cards.
 - Teachers can publish sentence read-aloud and image-led word templates: word read-aloud, image match, word scramble, and fill blank.
@@ -25,7 +25,7 @@
 - Students can edit non-sensitive personal fields in the mobile `我的` center while phone, role, status, and classroom membership remain read-only.
 - Students receive idempotent server-owned points for first daily activity, first homework-occurrence completion, and configured streak milestones, with level progress and recent point reasons.
 - Assigned teachers configure future check-in, completion, and consecutive-check-in rewards for their active classrooms; administrators retain operational access without changing points already earned.
-- Students can view check-in totals, current streak, voice/homework duration, a zero-filled seven-day chart, and complete assigned homework history including paused and archived plans.
+- Students can view check-in totals, current streak, voice/homework duration, a zero-filled seven-day chart, and complete assigned homework history including paused and sealed plans.
 - Teachers and administrators can view an active student's read-only learning summary and recent check-ins in the web console.
 
 ## Planned, not implemented

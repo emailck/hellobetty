@@ -211,8 +211,8 @@ describe("student engagement backend", () => {
     expect(stats.json().recentDays.some((day: { voiceSeconds: number; homeworkSeconds: number }) => day.voiceSeconds === 0 && day.homeworkSeconds === 0)).toBe(true);
   });
 
-  it("returns archived homework in student history with latest-attempt review counts", async () => {
-    const { student, teacher, studentToken } = await createUsers();
+  it("hides ended homework after the student's next login and preserves it in history", async () => {
+    const { student, teacher } = await createUsers();
     const homework = store.createPublishedHomework({
       publisherId: teacher.id,
       title: "History sentence",
@@ -229,10 +229,25 @@ describe("student engagement backend", () => {
     store.submitPracticeRecording({ occurrenceId: occurrence.id, itemId: item.id, studentId: student.id, audioUrl: "/uploads/submissions/rerecord.webm" });
     store.updateHomeworkStatus({ homeworkId: homework.id, status: "ARCHIVED" });
 
+    const relogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { phone: student.phone, password: "StudentPass123" },
+    });
+    expect(relogin.statusCode).toBe(200);
+    const freshStudentToken = relogin.json().token as string;
+    const currentHomeworks = await app.inject({
+      method: "GET",
+      url: "/api/student/practice-homeworks",
+      headers: { authorization: `Bearer ${freshStudentToken}` },
+    });
+    expect(currentHomeworks.statusCode).toBe(200);
+    expect(currentHomeworks.json().occurrences).toHaveLength(0);
+
     const history = await app.inject({
       method: "GET",
       url: "/api/student/homework-history?page=1&pageSize=10",
-      headers: { authorization: `Bearer ${studentToken}` },
+      headers: { authorization: `Bearer ${freshStudentToken}` },
     });
     expect(history.statusCode).toBe(200);
     expect(history.json().occurrences[0]).toMatchObject({

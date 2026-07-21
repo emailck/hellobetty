@@ -204,6 +204,12 @@ describe("operations milestone backend", () => {
       studentIds: [otherStudent.id],
     });
 
+    const teacherClassrooms = await app.inject({ method: "GET", url: "/api/admin/classrooms", headers: { authorization: `Bearer ${teacherToken}` } });
+    expect(teacherClassrooms.statusCode).toBe(200);
+    expect(teacherClassrooms.json().classrooms.map((classroom: { id: string }) => classroom.id)).toEqual([classroomId]);
+    const teacherClassroomUpdate = await app.inject({ method: "PATCH", url: `/api/admin/classrooms/${classroomId}`, headers: { authorization: `Bearer ${teacherToken}` }, payload: { name: "Teacher cannot rename" } });
+    expect(teacherClassroomUpdate.statusCode).toBe(403);
+
     const teacherUsers = await app.inject({ method: "GET", url: "/api/admin/users", headers: { authorization: `Bearer ${teacherToken}` } });
     expect(teacherUsers.statusCode).toBe(200);
     expect(teacherUsers.json().users.map((user: { id: string }) => user.id)).toEqual([student.id]);
@@ -264,6 +270,16 @@ describe("operations milestone backend", () => {
       completedOccurrenceCount: 0,
     });
     expect(teacherHomeworkIds).not.toContain(otherHomework.id);
+
+    const teacherHistoryPageOne = await app.inject({ method: "GET", url: "/api/admin/homeworks?page=1&pageSize=1", headers: { authorization: `Bearer ${teacherToken}` } });
+    const teacherHistoryPageTwo = await app.inject({ method: "GET", url: "/api/admin/homeworks?page=2&pageSize=1", headers: { authorization: `Bearer ${teacherToken}` } });
+    expect(teacherHistoryPageOne.statusCode).toBe(200);
+    expect(teacherHistoryPageOne.json().pagination).toEqual({ page: 1, pageSize: 1, total: 2 });
+    expect(teacherHistoryPageTwo.json().pagination).toEqual({ page: 2, pageSize: 1, total: 2 });
+    expect([
+      teacherHistoryPageOne.json().homeworks[0].id,
+      teacherHistoryPageTwo.json().homeworks[0].id,
+    ]).toEqual(expect.arrayContaining([homeworkId, legacy.id]));
 
     const occurrenceIdBeforePause = store.listStudentPracticeOccurrences(student.id)[0].id as string;
     const pause = await app.inject({ method: "PATCH", url: `/api/admin/homeworks/${homeworkId}/status`, headers: { authorization: `Bearer ${teacherToken}` }, payload: { status: "PAUSED" } });

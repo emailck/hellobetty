@@ -162,7 +162,13 @@ describe("learning statistics", () => {
       items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/practice.mp3" }],
       schedule: schedule("2026-07-01T00:00:00.000Z"),
     });
-    const occurrence = store.listStudentPracticeOccurrences(student.id)[0];
+    const startedAt = new Date("2026-07-13T16:30:00.000Z");
+    const occurrence = store.listStudentHomeworkHistory({
+      studentId: student.id,
+      page: 1,
+      pageSize: 1,
+      currentTime: startedAt,
+    }).occurrences[0];
 
     const denied = await app.inject({
       method: "POST",
@@ -173,7 +179,6 @@ describe("learning statistics", () => {
     expect(denied.statusCode).toBe(404);
     expect(denied.json().code).toBe("HOMEWORK_NOT_FOUND");
 
-    const startedAt = new Date("2026-07-13T16:30:00.000Z");
     const first = store.startHomeworkSession({
       occurrenceId: occurrence.id,
       studentId: student.id,
@@ -253,7 +258,12 @@ describe("learning statistics", () => {
       items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/practice.mp3" }],
       schedule: schedule("2026-07-01T00:00:00.000Z"),
     });
-    const occurrence = store.listStudentPracticeOccurrences(student.id)[0];
+    const occurrence = store.listStudentHomeworkHistory({
+      studentId: student.id,
+      page: 1,
+      pageSize: 1,
+      currentTime: new Date("2026-07-13T16:30:00.000Z"),
+    }).occurrences[0];
     const session = store.startHomeworkSession({
       occurrenceId: occurrence.id,
       studentId: student.id,

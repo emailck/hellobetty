@@ -312,6 +312,7 @@ export interface StaffClassroomMember {
   id: string;
   displayName: string;
   phone: string;
+  role: "TEACHER" | "STUDENT";
   status: string;
 }
 
@@ -321,6 +322,34 @@ export interface StaffClassroom {
   status: string;
   teachers: StaffClassroomMember[];
   students: StaffClassroomMember[];
+  teacherCount: number;
+  studentCount: number;
+}
+
+export interface StaffHomeworkSummary {
+  id: string;
+  publisherId: string;
+  publisherName: string;
+  classroomId: string | null;
+  classroomName: string | null;
+  classroomStatus: string | null;
+  title: string;
+  instructions: string | null;
+  status: "PUBLISHED" | "PAUSED" | "ARCHIVED";
+  templateType: HomeworkTemplateType | "STANDARD";
+  startsAt: string;
+  repeatUnit: "DAY" | "WEEK";
+  repeatInterval: number;
+  occurrenceLimit: number;
+  publishedAt: string;
+  targetCount: number;
+  occurrenceCount: number;
+  completedOccurrenceCount: number;
+}
+
+export interface StaffHomeworkHistoryResponse {
+  homeworks: StaffHomeworkSummary[];
+  pagination: { page: number; pageSize: number; total: number };
 }
 
 export interface MobileUploadFile {
@@ -501,6 +530,44 @@ export function getStaffClassrooms(token: string) {
   });
 }
 
+export function createStaffClassroom(token: string, input: { name: string; teacherIds: string[]; studentIds: string[] }) {
+  return request<{ classroom: StaffClassroom }>("/api/admin/classrooms", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateStaffClassroom(
+  token: string,
+  classroomId: string,
+  input: { name?: string; status?: "ACTIVE" | "ARCHIVED"; teacherIds?: string[]; studentIds?: string[] },
+) {
+  return request<{ classroom: StaffClassroom }>(`/api/admin/classrooms/${classroomId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+}
+
+export function getStaffHomeworkHistory(token: string, page = 1, pageSize = 20) {
+  return request<StaffHomeworkHistoryResponse>(`/api/admin/homeworks?page=${page}&pageSize=${pageSize}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function updateStaffHomeworkStatus(
+  token: string,
+  homeworkId: string,
+  status: "PUBLISHED" | "PAUSED" | "ARCHIVED",
+) {
+  return request<{ homework: StaffHomeworkSummary }>(`/api/admin/homeworks/${homeworkId}/status`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status }),
+  });
+}
+
 export async function reviewReadingSubmission(
   token: string,
   submissionId: string,
@@ -532,14 +599,14 @@ export async function reviewPracticeRecordingSubmission(
   });
 }
 
-export async function getStaffStudents(token: string) {
+async function getStaffUsersByRole(token: string, role: "TEACHER" | "STUDENT") {
   const pageSize = 100;
   let page = 1;
   let users: StaffStudent[] = [];
   let total: number | null = null;
 
   do {
-    const body = await request<{ users: StaffStudent[]; pagination?: { total: number } }>(`/api/admin/users?page=${page}&pageSize=${pageSize}`, {
+    const body = await request<{ users: StaffStudent[]; pagination?: { total: number } }>(`/api/admin/users?page=${page}&pageSize=${pageSize}&role=${role}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     users = [...users, ...body.users];
@@ -548,6 +615,14 @@ export async function getStaffStudents(token: string) {
   } while (users.length < total);
 
   return { users };
+}
+
+export function getStaffStudents(token: string) {
+  return getStaffUsersByRole(token, "STUDENT");
+}
+
+export function getStaffTeachers(token: string) {
+  return getStaffUsersByRole(token, "TEACHER");
 }
 
 export async function uploadHomeworkAsset(token: string, file: Blob | MobileUploadFile) {
