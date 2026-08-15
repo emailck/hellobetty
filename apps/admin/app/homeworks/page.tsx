@@ -11,6 +11,7 @@ import {
   FileAudio,
   Mic,
   CircleStop,
+  ListChecks,
   Pause,
   Play,
   Square,
@@ -27,7 +28,8 @@ type TemplateType =
   | "WORD_SCRAMBLE"
   | "WORD_FILL_BLANK";
 
-type Grade = "A" | "B" | "C" | "D";
+type Grade = "SSS" | "SS" | "S" | "A" | "B";
+type StoredGrade = Grade | "C" | "D";
 type ReviewStatus = "DONE" | "GRADED";
 
 interface Student {
@@ -121,7 +123,7 @@ interface RecordingSubmission {
   referenceText?: string | null;
   audioUrl: string;
   feedbackAudioUrl: string | null;
-  grade: Grade | null;
+  grade: StoredGrade | null;
   status: ReviewStatus;
   assessment: SpeechAssessment | null;
 }
@@ -141,6 +143,16 @@ const RECORDING_TEMPLATES = new Set<TemplateType>([
   "SENTENCE_READ_ALOUD",
   "WORD_READ_ALOUD",
 ]);
+
+const GRADE_OPTIONS: Grade[] = ["SSS", "SS", "S", "A", "B"];
+
+function normalizedGrade(grade: StoredGrade | null | undefined): Grade {
+  return GRADE_OPTIONS.includes(grade as Grade) ? grade as Grade : "A";
+}
+
+function legacyGradeNote(grade: StoredGrade | null) {
+  return grade === "C" || grade === "D" ? <span className="human-grade-note">历史等级 {grade}</span> : null;
+}
 
 function templateLabel(type: TemplateType | undefined) {
   return TEMPLATE_OPTIONS.find((option) => option.type === type)?.label ?? "跟读绘本";
@@ -249,6 +261,13 @@ function AssessmentSummary({ assessment }: { assessment: SpeechAssessment | null
   </div>;
 }
 
+function audioFileExtension(mimeType: string) {
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mp4") || mimeType.includes("m4a")) return "m4a";
+  if (mimeType.includes("wav")) return "wav";
+  return "webm";
+}
+
 function dedupeStudents(users: Student[]) {
   return Array.from(new Map(users.map((user) => [user.id, user])).values())
     .filter((user) => !user.role || user.role === "STUDENT");
@@ -283,6 +302,10 @@ export default function HomeworkPage() {
   const feedbackRecorderRef = useRef<MediaRecorder | null>(null);
   const feedbackStreamRef = useRef<MediaStream | null>(null);
   const [recordingReviewId, setRecordingReviewId] = useState<string | null>(null);
+  const itemRecorderRef = useRef<MediaRecorder | null>(null);
+  const itemStreamRef = useRef<MediaStream | null>(null);
+  const discardItemRecordingRef = useRef(false);
+  const [recordingItemId, setRecordingItemId] = useState<string | null>(null);
 
   const selectedCount = selectedIds.length;
   const totalOccurrences = selectedCount * occurrenceLimit;
@@ -419,6 +442,10 @@ export default function HomeworkPage() {
 
   function selectTemplate(nextTemplate: TemplateType) {
     if (nextTemplate === templateType) return;
+    if (recordingItemId) {
+      setError("请先停止当前示范录音，再切换练习模板");
+      return;
+    }
     setTemplateType(nextTemplate);
     setItems([]);
     setError("");
@@ -428,7 +455,13 @@ export default function HomeworkPage() {
     setItems((current) => current.map((item) => item.id === itemId ? { ...item, ...patch } : item));
   };
 
-  const removeItem = (itemId: string) => setItems((current) => current.filter((item) => item.id !== itemId));
+  const removeItem = (itemId: string) => {
+    if (recordingItemId) {
+      setError("请先停止当前示范录音，再删除练习项目");
+      return;
+    }
+    setItems((current) => current.filter((item) => item.id !== itemId));
+  };
 
   function moveItem(itemId: string, direction: -1 | 1) {
     setItems((current) => {
@@ -441,7 +474,7 @@ export default function HomeworkPage() {
     });
   }
 
-  async function uploadItemFile(itemId: string, file: File, field: "image" | "audio") {
+  async function uploadItemFile(itemId: string, file: File, field: "image" | "audio", displayName = file.name) {
     setError("");
     if (file.size > 20 * 1024 * 1024) {
       setError("单个文件不能超过 20 MB");
@@ -462,12 +495,59 @@ export default function HomeworkPage() {
       }
       updateItem(itemId, field === "image"
         ? { imageUrl: body.url, imageName: file.name }
-        : { sampleAudioUrl: body.url, audioName: file.name });
+        : { sampleAudioUrl: body.url, audioName: displayName });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "上传失败，请稍后重试");
     } finally {
       setUploadingItemId(null);
     }
+  }
+
+  async function startItemRecording(itemId: string) {
+    if (recordingItemId || recordingReviewId || uploadingItemId) return;
+    setError("");
+    setNotice("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      discardItemRecordingRef.current = false;
+      itemStreamRef.current = stream;
+      itemRecorderRef.current = recorder;
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", () => {
+        stream.getTracks().forEach((track) => track.stop());
+        itemStreamRef.current = null;
+        itemRecorderRef.current = null;
+        setRecordingItemId(null);
+        if (discardItemRecordingRef.current) return;
+        if (chunks.length === 0) {
+          setError("没有获得录音文件，请重新录音");
+          return;
+        }
+        const type = (recorder.mimeType || "audio/webm").split(";")[0];
+        const extension = audioFileExtension(type);
+        const recording = new File(
+          [new Blob(chunks, { type })],
+          `sample-recording-${Date.now()}.${extension}`,
+          { type },
+        );
+        void uploadItemFile(itemId, recording, "audio", "现场录音");
+      });
+      recorder.start();
+      setRecordingItemId(itemId);
+    } catch {
+      itemStreamRef.current?.getTracks().forEach((track) => track.stop());
+      itemStreamRef.current = null;
+      itemRecorderRef.current = null;
+      setError("无法开始示范录音，请允许浏览器使用麦克风");
+    }
+  }
+
+  function stopItemRecording() {
+    if (itemRecorderRef.current?.state === "recording") itemRecorderRef.current.stop();
   }
 
   async function uploadReviewAudio(submissionId: string, file: File) {
@@ -497,7 +577,7 @@ export default function HomeworkPage() {
   }
 
   async function startFeedbackRecording(submissionId: string) {
-    if (recordingReviewId) return;
+    if (recordingReviewId || recordingItemId) return;
     setError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -529,6 +609,9 @@ export default function HomeworkPage() {
   }
 
   useEffect(() => () => {
+    discardItemRecordingRef.current = true;
+    if (itemRecorderRef.current?.state === "recording") itemRecorderRef.current.stop();
+    itemStreamRef.current?.getTracks().forEach((track) => track.stop());
     feedbackRecorderRef.current?.stop();
     feedbackStreamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
@@ -544,7 +627,7 @@ export default function HomeworkPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          grade: reviewGradeById[submission.id] ?? submission.grade ?? "A",
+          grade: reviewGradeById[submission.id] ?? normalizedGrade(submission.grade),
           feedbackAudioUrl: reviewAudioById[submission.id] || submission.feedbackAudioUrl || undefined,
         }),
       });
@@ -600,6 +683,14 @@ export default function HomeworkPage() {
     event.preventDefault();
     setError("");
     setNotice("");
+    if (recordingItemId) {
+      setError("请先停止当前示范录音，再发布作业");
+      return;
+    }
+    if (uploadingItemId) {
+      setError("请等待素材上传完成，再发布作业");
+      return;
+    }
     if (isTeacher && !selectedClassroomId) {
       setError("教师发布作业前必须先选择一个已分配班级");
       return;
@@ -691,7 +782,20 @@ export default function HomeworkPage() {
                 {["WORD_READ_ALOUD", "WORD_IMAGE_MATCH", "WORD_SCRAMBLE", "WORD_FILL_BLANK"].includes(templateType) ? <div className="field compact-field"><label htmlFor={`answer-${item.id}`}>英文单词</label><input id={`answer-${item.id}`} value={item.answerText} onChange={(event) => updateItem(item.id, { answerText: event.target.value })} placeholder="例如：apple" maxLength={100} /></div> : null}
                 {templateType === "WORD_IMAGE_MATCH" || templateType === "WORD_FILL_BLANK" ? <div className="field compact-field"><label htmlFor={`choices-${item.id}`}>备选词（可选）</label><textarea id={`choices-${item.id}`} value={item.choicesText} onChange={(event) => updateItem(item.id, { choicesText: event.target.value })} placeholder="逗号或换行分隔，例如：apple, orange, pear" maxLength={1000} /></div> : null}
                 {templateType !== "SENTENCE_READ_ALOUD" ? <label className="upload-field">练习图片<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadItemFile(item.id, file, "image"); }} /><span>{item.imageName || "选择 JPG、PNG 或 WebP"}</span></label> : null}
-                {RECORDING_TEMPLATES.has(templateType) ? <label className="upload-field">示范录音<input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/m4a,audio/x-m4a,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadItemFile(item.id, file, "audio"); }} /><span>{item.audioName || "选择 MP3、WAV、M4A、WebM 或 OGG"}</span></label> : null}
+                {RECORDING_TEMPLATES.has(templateType) ? <div className="sample-audio-field">
+                  <span>示范录音</span>
+                  <div className="sample-audio-actions">
+                    <label className="sample-audio-upload" title={item.sampleAudioUrl ? "重新上传示范音频" : "上传示范音频"} aria-label={item.sampleAudioUrl ? "重新上传示范音频" : "上传示范音频"}>
+                      <FileAudio size={17} />
+                      <input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/m4a,audio/x-m4a,audio/webm,audio/ogg" disabled={Boolean(recordingItemId) || uploadingItemId === item.id} onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void uploadItemFile(item.id, file, "audio"); }} />
+                    </label>
+                    {recordingItemId === item.id
+                      ? <button className="table-icon-button recording-icon-button" type="button" title="停止并使用这段录音" aria-label="停止并使用这段示范录音" onClick={stopItemRecording}><Square size={15} /></button>
+                      : <button className="table-icon-button" type="button" title={item.sampleAudioUrl ? "重新录制示范音频" : "现场录制示范音频"} aria-label={item.sampleAudioUrl ? "重新录制示范音频" : "现场录制示范音频"} disabled={Boolean(recordingItemId) || Boolean(recordingReviewId) || Boolean(uploadingItemId)} onClick={() => void startItemRecording(item.id)}><Mic size={17} /></button>}
+                    {item.sampleAudioUrl && recordingItemId !== item.id ? <audio className="sample-audio-control" controls preload="none" src={mediaUrl(item.sampleAudioUrl)} /> : <span className="sample-audio-empty">{recordingItemId === item.id ? "正在录音" : "上传或现场录制"}</span>}
+                  </div>
+                  <small className="sample-audio-name">{recordingItemId === item.id ? "正在录音，完成后点击停止" : item.audioName || "支持 MP3、WAV、M4A、WebM 或 OGG"}</small>
+                </div> : null}
                 {uploadingItemId === item.id ? <small className="upload-progress">正在上传...</small> : null}
               </div>)}
             </div> : null}
@@ -708,15 +812,15 @@ export default function HomeworkPage() {
           <div className="recipient-summary"><CheckSquare size={17} />已选择 {selectedCount} 名学生，将生成 {totalOccurrences} 次练习</div>
           <div className="recipient-list">{selectableStudents.length === 0 ? <p className="empty">{isTeacher && !selectedClassroom ? "请先选择一个已分配班级。" : "暂无可选学生，请先完成学生注册或班级成员配置。"}</p> : selectableStudents.map((student) => <label className="recipient-row" key={student.id}><input type="checkbox" checked={selectedSet.has(student.id)} onChange={() => toggleStudent(student.id)} /><span><strong>{student.displayName}</strong><small>{student.phone}</small></span></label>)}</div>
         </section>
-        <div className="publish-actions"><button className="primary-button publish-button" type="submit" disabled={isSubmitting || Boolean(uploadingItemId)}>{isSubmitting ? "正在发布..." : "发布作业"}</button></div>
+        <div className="publish-actions"><button className="primary-button publish-button" type="submit" disabled={isSubmitting || Boolean(uploadingItemId) || Boolean(recordingItemId)}>{isSubmitting ? "正在发布..." : "发布作业"}</button></div>
       </form>
       <section className="panel homework-history" aria-labelledby="history-title">
         <div className="panel-header"><h2 id="history-title">已发布作业</h2><span className="header-user">最近 {homeworks.length} 条</span></div>
-        <div className="table-wrap"><table className="homework-table"><thead><tr><th>作业</th><th>班级</th><th>模板</th><th>周期</th><th>学生</th><th>进度</th><th>状态</th><th>首次触发</th><th>操作</th></tr></thead><tbody>{homeworks.length === 0 ? <tr><td colSpan={9} className="empty">还没有发布作业</td></tr> : homeworks.map((homework) => <tr key={homework.id}><td>{homework.title}</td><td>{homework.classroomName ?? "未限定"}</td><td>{templateLabel(homework.templateType)}</td><td>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"}，共 {homework.occurrenceLimit} 次</td><td>{homework.targetCount} 名</td><td>{homework.completedOccurrenceCount ?? 0} / {homework.occurrenceCount} 次</td><td><span className="status">{homeworkStatusLabel(homework.status)}</span></td><td>{new Date(homework.startsAt).toLocaleString("zh-CN")}</td><td><div className="inline-actions">{homework.status === "PUBLISHED" ? <button className="table-icon-button" type="button" title="暂停作业" aria-label={`暂停 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PAUSED")}><Pause size={16} /></button> : null}{homework.status === "PAUSED" ? <button className="table-icon-button" type="button" title="恢复作业" aria-label={`恢复 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PUBLISHED")}><Play size={16} /></button> : null}{homework.status !== "ARCHIVED" ? <button className="table-icon-button" type="button" title="结束作业" aria-label={`结束 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "ARCHIVED")}><CircleStop size={16} /></button> : <span className="table-muted">-</span>}</div></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="homework-table"><thead><tr><th>作业</th><th>班级</th><th>模板</th><th>周期</th><th>学生</th><th>进度</th><th>状态</th><th>首次触发</th><th>操作</th></tr></thead><tbody>{homeworks.length === 0 ? <tr><td colSpan={9} className="empty">还没有发布作业</td></tr> : homeworks.map((homework) => <tr key={homework.id}><td>{homework.title}</td><td>{homework.classroomName ?? "未限定"}</td><td>{templateLabel(homework.templateType)}</td><td>每 {homework.repeatInterval} {homework.repeatUnit === "DAY" ? "天" : "周"}，共 {homework.occurrenceLimit} 次</td><td>{homework.targetCount} 名</td><td>{homework.completedOccurrenceCount ?? 0} / {homework.occurrenceCount} 次</td><td><span className="status">{homeworkStatusLabel(homework.status)}</span></td><td>{new Date(homework.startsAt).toLocaleString("zh-CN")}</td><td><div className="inline-actions"><a className="table-icon-button" href={`/homeworks/${encodeURIComponent(homework.id)}/latest-cycle`} title="查看最近周期学生作业情况" aria-label={`查看 ${homework.title} 最近周期学生作业情况`}><ListChecks size={17} /></a>{homework.status === "PUBLISHED" ? <button className="table-icon-button" type="button" title="暂停作业" aria-label={`暂停 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PAUSED")}><Pause size={16} /></button> : null}{homework.status === "PAUSED" ? <button className="table-icon-button" type="button" title="恢复作业" aria-label={`恢复 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "PUBLISHED")}><Play size={16} /></button> : null}{homework.status !== "ARCHIVED" ? <button className="table-icon-button" type="button" title="结束作业" aria-label={`结束 ${homework.title}`} onClick={() => void updateHomeworkStatus(homework, "ARCHIVED")}><CircleStop size={16} /></button> : null}</div></td></tr>)}</tbody></table></div>
       </section>
       <section className="panel homework-history" aria-labelledby="review-title">
         <div className="panel-header"><h2 id="review-title">朗读提交</h2><div className="review-toolbar"><span className="header-user">待批改 {submissions.filter((submission) => submission.status === "DONE").length} · 已批改 {submissions.filter((submission) => submission.status === "GRADED").length}</span><button className={`table-icon-button ${reviewFilter === "DONE" ? "active-icon-button" : ""}`} type="button" title="查看待批改录音" aria-label="查看待批改录音" onClick={() => setReviewFilter("DONE")}><Clock3 size={17} /></button><button className={`table-icon-button ${reviewFilter === "GRADED" ? "active-icon-button" : ""}`} type="button" title="查看已批改录音" aria-label="查看已批改录音" onClick={() => setReviewFilter("GRADED")}><CheckCircle2 size={17} /></button></div></div>
-        <div className="table-wrap"><table className="review-table"><thead><tr><th>学生 / 作业</th><th>练习内容</th><th>学生录音</th><th>机器评测（参考）</th><th>人工等级</th><th>点评语音</th><th>状态</th><th>批改</th></tr></thead><tbody>{visibleSubmissions.length === 0 ? <tr><td colSpan={8} className="empty">{reviewFilter === "DONE" ? "暂时没有待批改的朗读录音" : "暂时没有已批改的朗读录音"}</td></tr> : visibleSubmissions.map((submission) => <tr key={`${submission.source}-${submission.id}`}><td><strong>{submission.studentName}</strong><br /><span className="table-muted">{submission.homeworkTitle}</span></td><td><span className="review-template">{templateLabel(submission.templateType)}</span><br /><strong>{submission.referenceText || submission.promptText || submission.answerText || (submission.cardPosition ? `第 ${submission.cardPosition} 页` : `第 ${submission.itemPosition ?? 1} 题`)}</strong></td><td><audio className="audio-control" controls preload="none" src={mediaUrl(submission.audioUrl)} /></td><td><AssessmentSummary assessment={submission.assessment} /></td><td><select className="grade-select" aria-label={`为 ${submission.studentName} 选择人工等级`} value={reviewGradeById[submission.id] ?? submission.grade ?? "A"} onChange={(event) => setReviewGradeById((current) => ({ ...current, [submission.id]: event.target.value as Grade }))}><option>A</option><option>B</option><option>C</option><option>D</option></select><span className="human-grade-note">人工终评</span></td><td><div className="review-audio-actions">{recordingReviewId === submission.id ? <button className="table-icon-button recording-icon-button" type="button" title="停止并上传语音点评" aria-label="停止并上传语音点评" onClick={stopFeedbackRecording}><Square size={15} /></button> : <button className="table-icon-button" type="button" title="录制语音点评" aria-label="录制语音点评" disabled={Boolean(recordingReviewId) || uploadingReviewId === submission.id} onClick={() => void startFeedbackRecording(submission.id)}><Mic size={16} /></button>}<label className="review-audio-upload" title="上传语音点评"><FileAudio size={17} /><input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/m4a,audio/x-m4a,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadReviewAudio(submission.id, file); }} /></label>{reviewAudioById[submission.id] || submission.feedbackAudioUrl ? <span className="table-muted">已附语音</span> : null}</div></td><td><span className={submission.status === "GRADED" ? "status graded-status" : "status"}>{submission.status === "GRADED" ? "已批改" : "已做"}</span></td><td><button className="table-icon-button" type="button" title="提交人工批改" aria-label="提交人工批改" disabled={reviewingId === submission.id || uploadingReviewId === submission.id || recordingReviewId === submission.id} onClick={() => void reviewSubmission(submission)}>{reviewingId === submission.id ? "..." : <Check size={18} />}</button></td></tr>)}</tbody></table></div>
+        <div className="table-wrap"><table className="review-table"><thead><tr><th>学生 / 作业</th><th>练习内容</th><th>学生录音</th><th>机器评测（参考）</th><th>人工等级</th><th>点评语音</th><th>状态</th><th>批改</th></tr></thead><tbody>{visibleSubmissions.length === 0 ? <tr><td colSpan={8} className="empty">{reviewFilter === "DONE" ? "暂时没有待批改的朗读录音" : "暂时没有已批改的朗读录音"}</td></tr> : visibleSubmissions.map((submission) => <tr key={`${submission.source}-${submission.id}`}><td><strong>{submission.studentName}</strong><br /><span className="table-muted">{submission.homeworkTitle}</span></td><td><span className="review-template">{templateLabel(submission.templateType)}</span><br /><strong>{submission.referenceText || submission.promptText || submission.answerText || (submission.cardPosition ? `第 ${submission.cardPosition} 页` : `第 ${submission.itemPosition ?? 1} 题`)}</strong></td><td><audio className="audio-control" controls preload="none" src={mediaUrl(submission.audioUrl)} /></td><td><AssessmentSummary assessment={submission.assessment} /></td><td><select className="grade-select" aria-label={`为 ${submission.studentName} 选择人工等级`} value={reviewGradeById[submission.id] ?? normalizedGrade(submission.grade)} onChange={(event) => setReviewGradeById((current) => ({ ...current, [submission.id]: event.target.value as Grade }))}>{GRADE_OPTIONS.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</select><span className="human-grade-note">人工终评</span>{legacyGradeNote(submission.grade)}</td><td><div className="review-audio-actions">{recordingReviewId === submission.id ? <button className="table-icon-button recording-icon-button" type="button" title="停止并上传语音点评" aria-label="停止并上传语音点评" onClick={stopFeedbackRecording}><Square size={15} /></button> : <button className="table-icon-button" type="button" title="录制语音点评" aria-label="录制语音点评" disabled={Boolean(recordingReviewId) || Boolean(recordingItemId) || uploadingReviewId === submission.id} onClick={() => void startFeedbackRecording(submission.id)}><Mic size={16} /></button>}<label className="review-audio-upload" title="上传语音点评"><FileAudio size={17} /><input type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/m4a,audio/x-m4a,audio/webm,audio/ogg" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadReviewAudio(submission.id, file); }} /></label>{reviewAudioById[submission.id] || submission.feedbackAudioUrl ? <span className="table-muted">已附语音</span> : null}</div></td><td><span className={submission.status === "GRADED" ? "status graded-status" : "status"}>{submission.status === "GRADED" ? "已批改" : "已做"}</span></td><td><button className="table-icon-button" type="button" title="提交人工批改" aria-label="提交人工批改" disabled={reviewingId === submission.id || uploadingReviewId === submission.id || recordingReviewId === submission.id} onClick={() => void reviewSubmission(submission)}>{reviewingId === submission.id ? "..." : <Check size={18} />}</button></td></tr>)}</tbody></table></div>
       </section>
     </main>
   </ConsoleShell>;

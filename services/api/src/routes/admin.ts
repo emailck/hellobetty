@@ -1,7 +1,8 @@
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { AccountStore, StaffScope } from "../lib/account-store.js";
+import { REVIEW_GRADES } from "../lib/account-store.js";
+import type { AccountStore, ReviewGrade, StaffHomeworkReviewMode, StaffScope } from "../lib/account-store.js";
 import { toPublicUser, normalizePhone, isValidPhone, USER_ROLES, USER_STATUSES } from "../domain/user.js";
 import { HOMEWORK_STATUS, SCHEDULE_UNITS } from "../domain/homework.js";
 import {
@@ -13,6 +14,8 @@ import {
   InvalidHomeworkStudentsError,
   InvalidHomeworkItemsError,
   InvalidPictureBookCardsError,
+  HomeworkAccessError,
+  HomeworkTemplateAccessError,
   ReviewSubmissionNotFoundError,
   SpeechAssessmentAccessError,
   SpeechAssessmentRetryError,
@@ -35,19 +38,38 @@ interface HomeworkListQuery {
   pageSize?: string;
 }
 
-interface PublishHomeworkBody {
+interface PublishedHomeworkListQuery extends HomeworkListQuery {
+  search?: string;
+  status?: "PUBLISHED" | "PAUSED" | "ARCHIVED";
+  classroomId?: string;
+}
+
+interface HomeworkTemplateListQuery extends HomeworkListQuery {
+  search?: string;
+  templateType?: PublishableHomeworkTemplateType;
+}
+
+interface HomeworkSubmissionListQuery extends HomeworkListQuery {
+  studentId?: string;
+  studentSearch?: string;
+  homeworkId?: string;
+  submittedFrom?: string;
+  submittedTo?: string;
+  reviewMode?: StaffHomeworkReviewMode;
+}
+
+type PublishableHomeworkTemplateType =
+  | "READ_ALOUD_PICTURE_BOOK"
+  | "SENTENCE_READ_ALOUD"
+  | "WORD_READ_ALOUD"
+  | "WORD_IMAGE_MATCH"
+  | "WORD_SCRAMBLE"
+  | "WORD_FILL_BLANK";
+
+interface HomeworkContentBody {
   title: string;
   instructions?: string;
-  classroomId?: string | null;
-  studentIds: string[];
-  templateType?:
-    | "STANDARD"
-    | "READ_ALOUD_PICTURE_BOOK"
-    | "SENTENCE_READ_ALOUD"
-    | "WORD_READ_ALOUD"
-    | "WORD_IMAGE_MATCH"
-    | "WORD_SCRAMBLE"
-    | "WORD_FILL_BLANK";
+  templateType?: "STANDARD" | PublishableHomeworkTemplateType;
   cards?: Array<{ imageUrl: string; sampleAudioUrl: string; referenceText: string }>;
   items?: Array<{
     promptText?: string;
@@ -56,6 +78,16 @@ interface PublishHomeworkBody {
     answerText?: string;
     choices?: string[];
   }>;
+}
+
+interface HomeworkTemplateBody extends HomeworkContentBody {
+  templateType: PublishableHomeworkTemplateType;
+}
+
+interface PublishHomeworkBody extends Partial<HomeworkContentBody> {
+  templateId?: string;
+  classroomId?: string | null;
+  studentIds: string[];
   schedule: {
     startsAt: string;
     unit: "DAY" | "WEEK";
@@ -65,7 +97,7 @@ interface PublishHomeworkBody {
 }
 
 interface ReviewBody {
-  grade: "A" | "B" | "C" | "D";
+  grade: ReviewGrade;
   feedbackAudioUrl?: string;
 }
 
@@ -150,6 +182,71 @@ const homeworkPaginationQuerySchema = {
     pageSize: { type: "string", pattern: "^[0-9]+$" },
   },
 } as const;
+
+const publishedHomeworkListQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    page: { type: "string", pattern: "^[0-9]+$" },
+    pageSize: { type: "string", pattern: "^[0-9]+$" },
+    search: { type: "string", maxLength: 100 },
+    status: { type: "string", enum: [HOMEWORK_STATUS.PUBLISHED, HOMEWORK_STATUS.PAUSED, HOMEWORK_STATUS.ARCHIVED] },
+    classroomId: { type: "string", minLength: 1 },
+  },
+} as const;
+
+const homeworkTemplateListQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    page: { type: "string", pattern: "^[0-9]+$" },
+    pageSize: { type: "string", pattern: "^[0-9]+$" },
+    search: { type: "string", maxLength: 100 },
+    templateType: { type: "string", enum: [
+      "READ_ALOUD_PICTURE_BOOK",
+      "SENTENCE_READ_ALOUD",
+      "WORD_READ_ALOUD",
+      "WORD_IMAGE_MATCH",
+      "WORD_SCRAMBLE",
+      "WORD_FILL_BLANK",
+    ] },
+  },
+} as const;
+
+const publishableTemplateTypes = [
+  "READ_ALOUD_PICTURE_BOOK",
+  "SENTENCE_READ_ALOUD",
+  "WORD_READ_ALOUD",
+  "WORD_IMAGE_MATCH",
+  "WORD_SCRAMBLE",
+  "WORD_FILL_BLANK",
+] as const;
+
+const inlineTemplateTypes = ["STANDARD", ...publishableTemplateTypes] as const;
+
+const homeworkContentProperties = {
+  title: { type: "string", minLength: 2, maxLength: 100 },
+  instructions: { type: "string", maxLength: 2000 },
+  templateType: { type: "string", enum: inlineTemplateTypes },
+  cards: { type: "array", minItems: 1, maxItems: 80, items: { type: "object", additionalProperties: false, required: ["imageUrl", "sampleAudioUrl", "referenceText"], properties: { imageUrl: { type: "string", minLength: 1, maxLength: 500 }, sampleAudioUrl: { type: "string", minLength: 1, maxLength: 500 }, referenceText: { type: "string", minLength: 1, maxLength: 500 } } } },
+  items: { type: "array", minItems: 1, maxItems: 100, items: { type: "object", additionalProperties: false, properties: { promptText: { type: "string", minLength: 1, maxLength: 500 }, imageUrl: { type: "string", minLength: 1, maxLength: 500 }, sampleAudioUrl: { type: "string", minLength: 1, maxLength: 500 }, answerText: { type: "string", minLength: 1, maxLength: 100 }, choices: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 100 } } } } },
+} as const;
+
+const publishScheduleSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["startsAt", "unit", "interval", "occurrenceLimit"],
+  properties: {
+    startsAt: { type: "string", format: "date-time" },
+    unit: { type: "string", enum: [SCHEDULE_UNITS.DAY, SCHEDULE_UNITS.WEEK] },
+    interval: { type: "integer", minimum: 1, maximum: 52 },
+    occurrenceLimit: { type: "integer", minimum: 1, maximum: 365 },
+  },
+} as const;
+
+function hasInlineHomeworkContent(body: PublishHomeworkBody): boolean {
+  return body.title !== undefined || body.instructions !== undefined || body.templateType !== undefined || body.cards !== undefined || body.items !== undefined;
+}
 
 export function createAdminRoutes(store: AccountStore, options: AdminRouteOptions = {}) {
   return async function adminRoutes(app: FastifyInstance) {
@@ -322,10 +419,14 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
       return { classrooms: store.listClassrooms(getScope(user)) };
     });
 
+    app.get("/classroom-student-candidates", { preHandler: (request, reply) => requireStaff(store, request, reply) }, async () => {
+      return { students: store.listClassroomStudentCandidates() };
+    });
+
     app.post<{ Body: { name: string; teacherIds?: string[]; studentIds?: string[] } }>(
       "/classrooms",
       {
-        preHandler: (request, reply) => requireAdmin(store, request, reply),
+        preHandler: (request, reply) => requireStaff(store, request, reply),
         schema: {
           body: {
             type: "object",
@@ -340,12 +441,15 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
         },
       },
       async (request, reply) => {
-        const admin = (await getStaffUser(store, request))!;
+        const staff = (await getStaffUser(store, request))!;
+        if (staff.role === USER_ROLES.TEACHER && request.body.teacherIds !== undefined) {
+          return reply.code(403).send({ code: "CLASSROOM_NOT_ALLOWED", message: "老师创建班级时不能指定其他老师" });
+        }
         try {
           const classroom = store.createClassroom({
-            creatorId: admin.id,
+            creatorId: staff.id,
             name: request.body.name,
-            teacherIds: request.body.teacherIds ?? [],
+            teacherIds: staff.role === USER_ROLES.TEACHER ? [staff.id] : request.body.teacherIds ?? [],
             studentIds: request.body.studentIds ?? [],
           });
           return reply.code(201).send({ classroom });
@@ -361,7 +465,7 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
     app.patch<{ Params: { classroomId: string }; Body: { name?: string; status?: "ACTIVE" | "ARCHIVED"; teacherIds?: string[]; studentIds?: string[] } }>(
       "/classrooms/:classroomId",
       {
-        preHandler: (request, reply) => requireAdmin(store, request, reply),
+        preHandler: (request, reply) => requireStaff(store, request, reply),
         schema: {
           params: { type: "object", additionalProperties: false, required: ["classroomId"], properties: { classroomId: { type: "string", minLength: 1 } } },
           body: {
@@ -377,8 +481,12 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
         },
       },
       async (request, reply) => {
+        const staff = (await getStaffUser(store, request))!;
+        if (staff.role === USER_ROLES.TEACHER && (request.body.teacherIds !== undefined || request.body.status !== undefined)) {
+          return reply.code(403).send({ code: "CLASSROOM_NOT_ALLOWED", message: "老师只能编辑自己班级的名称和学生" });
+        }
         try {
-          const classroom = store.updateClassroom({ classroomId: request.params.classroomId, ...request.body });
+          const classroom = store.updateClassroom({ classroomId: request.params.classroomId, ...request.body, scope: getScope(staff) });
           if (!classroom) return reply.code(404).send({ code: "CLASSROOM_NOT_FOUND", message: "没有找到班级" });
           return { classroom };
         } catch (error) {
@@ -406,6 +514,109 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
       },
     );
 
+    app.get<{ Querystring: HomeworkTemplateListQuery }>(
+      "/homework-templates",
+      { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { querystring: homeworkTemplateListQuerySchema } },
+      async (request) => {
+        const user = (await getStaffUser(store, request))!;
+        const page = Math.max(1, Number(request.query.page ?? 1));
+        const pageSize = Math.min(50, Math.max(1, Number(request.query.pageSize ?? 20)));
+        const scope = getScope(user);
+        const filters = { search: request.query.search, templateType: request.query.templateType };
+        return {
+          templates: store.listHomeworkTemplates(pageSize, scope, (page - 1) * pageSize, filters),
+          pagination: { page, pageSize, total: store.countHomeworkTemplates(scope, filters) },
+        };
+      },
+    );
+
+    app.get<{ Params: { templateId: string } }>(
+      "/homework-templates/:templateId",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          params: {
+            type: "object",
+            additionalProperties: false,
+            required: ["templateId"],
+            properties: { templateId: { type: "string", minLength: 1 } },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        const detail = store.getHomeworkTemplateDetail(request.params.templateId, getScope(user));
+        if (!detail) {
+          return reply.code(404).send({ code: "HOMEWORK_TEMPLATE_NOT_FOUND", message: "没有找到可查看的作业模板" });
+        }
+        return detail;
+      },
+    );
+
+    app.post<{ Body: HomeworkTemplateBody }>(
+      "/homework-templates",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          body: {
+            type: "object",
+            additionalProperties: false,
+            required: ["title", "templateType"],
+            properties: {
+              ...homeworkContentProperties,
+              templateType: { type: "string", enum: publishableTemplateTypes },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        try {
+          const detail = store.createHomeworkTemplate({
+            creatorId: user.id,
+            title: request.body.title.trim(),
+            instructions: request.body.instructions,
+            templateType: request.body.templateType,
+            cards: request.body.cards,
+            items: request.body.items,
+          });
+          return reply.code(201).send(detail);
+        } catch (error) {
+          if (error instanceof InvalidPictureBookCardsError) return reply.code(400).send({ code: "PICTURE_BOOK_CARDS_REQUIRED", message: "跟读绘本每页都需要图片、示范录音和跟读文本" });
+          if (error instanceof InvalidHomeworkItemsError) return reply.code(400).send({ code: "HOMEWORK_ITEMS_INVALID", message: "请检查练习条目必填内容、答案和选项" });
+          throw error;
+        }
+      },
+    );
+
+    app.delete<{ Params: { templateId: string } }>(
+      "/homework-templates/:templateId",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          params: {
+            type: "object",
+            additionalProperties: false,
+            required: ["templateId"],
+            properties: { templateId: { type: "string", minLength: 1 } },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        try {
+          const deleted = store.deleteHomeworkTemplate(request.params.templateId, getScope(user));
+          if (!deleted) return reply.code(404).send({ code: "HOMEWORK_TEMPLATE_NOT_FOUND", message: "没有找到可删除的作业模板" });
+          return { ok: true };
+        } catch (error) {
+          if (error instanceof HomeworkTemplateAccessError) {
+            return reply.code(404).send({ code: "HOMEWORK_TEMPLATE_NOT_FOUND", message: "没有找到可删除的作业模板" });
+          }
+          throw error;
+        }
+      },
+    );
+
     app.post<{ Body: PublishHomeworkBody }>(
       "/homeworks",
       {
@@ -414,38 +625,45 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
           body: {
             type: "object",
             additionalProperties: false,
-            required: ["title", "studentIds", "schedule"],
+            required: ["studentIds", "schedule"],
             properties: {
-              title: { type: "string", minLength: 2, maxLength: 100 },
-              instructions: { type: "string", maxLength: 2000 },
+              ...homeworkContentProperties,
+              templateId: { type: "string", minLength: 1, maxLength: 100 },
               classroomId: { anyOf: [{ type: "string", minLength: 1, maxLength: 100 }, { type: "null" }] },
-              templateType: { type: "string", enum: ["STANDARD", "READ_ALOUD_PICTURE_BOOK", "SENTENCE_READ_ALOUD", "WORD_READ_ALOUD", "WORD_IMAGE_MATCH", "WORD_SCRAMBLE", "WORD_FILL_BLANK"] },
-              cards: { type: "array", minItems: 1, maxItems: 80, items: { type: "object", additionalProperties: false, required: ["imageUrl", "sampleAudioUrl", "referenceText"], properties: { imageUrl: { type: "string", minLength: 1, maxLength: 500 }, sampleAudioUrl: { type: "string", minLength: 1, maxLength: 500 }, referenceText: { type: "string", minLength: 1, maxLength: 500 } } } },
-              items: { type: "array", minItems: 1, maxItems: 100, items: { type: "object", additionalProperties: false, properties: { promptText: { type: "string", minLength: 1, maxLength: 500 }, imageUrl: { type: "string", minLength: 1, maxLength: 500 }, sampleAudioUrl: { type: "string", minLength: 1, maxLength: 500 }, answerText: { type: "string", minLength: 1, maxLength: 100 }, choices: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 100 } } } } },
               studentIds: { type: "array", minItems: 1, maxItems: 200, items: { type: "string", minLength: 1 } },
-              schedule: { type: "object", additionalProperties: false, required: ["startsAt", "unit", "interval", "occurrenceLimit"], properties: { startsAt: { type: "string", format: "date-time" }, unit: { type: "string", enum: [SCHEDULE_UNITS.DAY, SCHEDULE_UNITS.WEEK] }, interval: { type: "integer", minimum: 1, maximum: 52 }, occurrenceLimit: { type: "integer", minimum: 1, maximum: 365 } } },
+              schedule: publishScheduleSchema,
             },
           },
         },
       },
       async (request, reply) => {
         const user = (await getStaffUser(store, request))!;
+        const templateId = request.body.templateId?.trim();
+        if (templateId && hasInlineHomeworkContent(request.body)) {
+          return reply.code(400).send({ code: "HOMEWORK_TEMPLATE_MIXED_CONTENT", message: "从作业库发布时不能同时传入新的作业内容" });
+        }
+        if (!templateId && (!request.body.title || request.body.title.trim().length < 2)) {
+          return reply.code(400).send({ code: "HOMEWORK_TITLE_REQUIRED", message: "新增作业需要填写标题" });
+        }
         try {
-          const homework = store.createPublishedHomework({
+          const publishInput = {
             publisherId: user.id,
             classroomId: request.body.classroomId,
             staffRole: user.role,
-            title: request.body.title.trim(),
+            templateId,
+            title: request.body.title?.trim() ?? "",
             instructions: request.body.instructions,
             studentIds: request.body.studentIds,
             schedule: request.body.schedule,
             templateType: request.body.templateType,
             cards: request.body.cards,
             items: request.body.items,
-          });
+          };
+          const homework = store.createPublishedHomework(publishInput);
           return reply.code(201).send({ homework: { ...homework, targetCount: new Set(request.body.studentIds).size, occurrenceCount: store.getHomeworkOccurrenceCount(homework.id), completedOccurrenceCount: 0 } });
         } catch (error) {
           if (error instanceof ClassroomAccessError) return reply.code(403).send({ code: "CLASSROOM_NOT_ALLOWED", message: "请选择可管理的有效班级" });
+          if (error instanceof HomeworkTemplateAccessError) return reply.code(404).send({ code: "HOMEWORK_TEMPLATE_NOT_FOUND", message: "没有找到可发布的作业模板" });
           if (error instanceof InvalidHomeworkStudentsError) return reply.code(400).send({ code: "STUDENTS_NOT_ASSIGNABLE", message: "所选学生不属于班级、已停用或不是学生账号" });
           if (error instanceof InvalidPictureBookCardsError) return reply.code(400).send({ code: "PICTURE_BOOK_CARDS_REQUIRED", message: "跟读绘本每页都需要图片、示范录音和跟读文本" });
           if (error instanceof InvalidHomeworkItemsError) return reply.code(400).send({ code: "HOMEWORK_ITEMS_INVALID", message: "请检查练习条目必填内容、答案和选项" });
@@ -509,18 +727,234 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
       }
     });
 
-    app.get<{ Querystring: HomeworkListQuery }>(
+    app.get<{ Querystring: PublishedHomeworkListQuery }>(
       "/homeworks",
-      { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { querystring: homeworkPaginationQuerySchema } },
+      { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { querystring: publishedHomeworkListQuerySchema } },
       async (request) => {
         const user = (await getStaffUser(store, request))!;
         const page = Math.max(1, Number(request.query.page ?? 1));
         const pageSize = Math.min(50, Math.max(1, Number(request.query.pageSize ?? 20)));
         const scope = getScope(user);
+        const filters = { search: request.query.search, status: request.query.status, classroomId: request.query.classroomId };
         return {
-          homeworks: store.listPublishedHomeworks(pageSize, scope, (page - 1) * pageSize),
-          pagination: { page, pageSize, total: store.countPublishedHomeworks(scope) },
+          homeworks: store.listPublishedHomeworks(pageSize, scope, (page - 1) * pageSize, filters),
+          pagination: { page, pageSize, total: store.countPublishedHomeworks(scope, filters) },
         };
+      },
+    );
+
+    app.get<{ Params: { homeworkId: string } }>(
+      "/homeworks/:homeworkId",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          params: {
+            type: "object",
+            additionalProperties: false,
+            required: ["homeworkId"],
+            properties: { homeworkId: { type: "string", minLength: 1 } },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        const detail = store.getPublishedHomeworkDetail(request.params.homeworkId, getScope(user));
+        if (!detail) {
+          return reply.code(404).send({ code: "HOMEWORK_NOT_FOUND", message: "没有找到可查看的作业" });
+        }
+        return detail;
+      },
+    );
+
+    app.get<{ Params: { homeworkId: string } }>(
+      "/homeworks/:homeworkId/latest-cycle",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          params: {
+            type: "object",
+            additionalProperties: false,
+            required: ["homeworkId"],
+            properties: { homeworkId: { type: "string", minLength: 1 } },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        const result = store.getLatestHomeworkCycle(request.params.homeworkId, getScope(user));
+        if (!result) {
+          return reply.code(404).send({ code: "HOMEWORK_NOT_FOUND", message: "没有找到可查看的作业" });
+        }
+        return result;
+      },
+    );
+
+    app.get<{ Querystring: HomeworkSubmissionListQuery }>(
+      "/homework-submission-groups",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          querystring: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              page: { type: "string", pattern: "^[0-9]+$" },
+              pageSize: { type: "string", pattern: "^[0-9]+$" },
+              studentSearch: { type: "string", maxLength: 40 },
+              reviewMode: { type: "string", enum: ["PENDING", "ALL"] },
+            },
+          },
+        },
+      },
+      async (request) => {
+        const user = (await getStaffUser(store, request))!;
+        const page = Math.max(1, Number(request.query.page ?? 1));
+        const pageSize = Math.min(50, Math.max(1, Number(request.query.pageSize ?? 20)));
+        const filters = {
+          studentSearch: request.query.studentSearch,
+          reviewMode: request.query.reviewMode ?? "PENDING",
+        };
+        const scope = getScope(user);
+        return {
+          groups: store.listHomeworkSubmissionGroups({ page, pageSize, scope, ...filters }),
+          pagination: {
+            page,
+            pageSize,
+            total: store.countHomeworkSubmissionGroups(filters, scope),
+          },
+        };
+      },
+    );
+
+    app.get<{ Querystring: HomeworkSubmissionListQuery }>(
+      "/homework-submissions",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          querystring: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              page: { type: "string", pattern: "^[0-9]+$" },
+              pageSize: { type: "string", pattern: "^[0-9]+$" },
+              studentId: { type: "string", minLength: 1 },
+              studentSearch: { type: "string", maxLength: 40 },
+              homeworkId: { type: "string", minLength: 1 },
+              submittedFrom: { type: "string", format: "date-time" },
+              submittedTo: { type: "string", format: "date-time" },
+              reviewMode: { type: "string", enum: ["PENDING", "ALL"] },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        const page = Math.max(1, Number(request.query.page ?? 1));
+        const pageSize = Math.min(50, Math.max(1, Number(request.query.pageSize ?? 20)));
+        const filters = {
+          studentId: request.query.studentId,
+          studentSearch: request.query.studentSearch,
+          homeworkId: request.query.homeworkId,
+          submittedFrom: request.query.submittedFrom,
+          submittedTo: request.query.submittedTo,
+          reviewMode: request.query.reviewMode,
+        };
+        if (filters.submittedFrom && filters.submittedTo && filters.submittedFrom > filters.submittedTo) {
+          return reply.code(400).send({ code: "INVALID_SUBMITTED_RANGE", message: "提交开始时间不能晚于结束时间" });
+        }
+        const scope = getScope(user);
+        return {
+          conversations: store.listHomeworkSubmissionConversations({ page, pageSize, scope, ...filters }),
+          filters: store.listHomeworkSubmissionFilterOptions(scope),
+          pagination: {
+            page,
+            pageSize,
+            total: store.countHomeworkSubmissionConversations(filters, scope),
+          },
+        };
+      },
+    );
+
+    app.get<{ Params: { occurrenceId: string } }>(
+      "/homework-submissions/:occurrenceId",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          params: {
+            type: "object",
+            additionalProperties: false,
+            required: ["occurrenceId"],
+            properties: { occurrenceId: { type: "string", minLength: 1 } },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        try {
+          return { conversation: store.getHomeworkSubmissionConversation(request.params.occurrenceId, getScope(user)) };
+        } catch (error) {
+          if (error instanceof HomeworkAccessError) {
+            return reply.code(404).send({ code: "HOMEWORK_SUBMISSION_NOT_FOUND", message: "没有找到可查看的作业提交" });
+          }
+          throw error;
+        }
+      },
+    );
+
+    app.post<{
+      Params: { occurrenceId: string; sourceKind: "CARD" | "ITEM"; submissionId: string };
+      Body: ReviewBody;
+    }>(
+      "/homework-submissions/:occurrenceId/:sourceKind/:submissionId/review",
+      {
+        preHandler: (request, reply) => requireStaff(store, request, reply),
+        schema: {
+          params: {
+            type: "object",
+            additionalProperties: false,
+            required: ["occurrenceId", "sourceKind", "submissionId"],
+            properties: {
+              occurrenceId: { type: "string", minLength: 1 },
+              sourceKind: { type: "string", enum: ["CARD", "ITEM"] },
+              submissionId: { type: "string", minLength: 1 },
+            },
+          },
+          body: {
+            type: "object",
+            additionalProperties: false,
+            required: ["grade"],
+            properties: {
+              grade: { type: "string", enum: REVIEW_GRADES },
+              feedbackAudioUrl: { type: "string", minLength: 1, maxLength: 500 },
+            },
+          },
+        },
+      },
+      async (request, reply) => {
+        const user = (await getStaffUser(store, request))!;
+        const input = {
+          submissionId: request.params.submissionId,
+          occurrenceId: request.params.occurrenceId,
+          grade: request.body.grade,
+          feedbackAudioUrl: request.body.feedbackAudioUrl,
+          scope: getScope(user),
+        };
+        try {
+          if (request.params.sourceKind === "CARD") store.reviewReadingSubmission(input);
+          else store.reviewPracticeRecordingSubmission(input);
+          return { conversation: store.getHomeworkSubmissionConversation(request.params.occurrenceId, getScope(user)) };
+        } catch (error) {
+          if (error instanceof ReviewSubmissionNotFoundError) {
+            return reply.code(404).send({ code: "SUBMISSION_NOT_FOUND", message: "没有找到可批改的当前提交" });
+          }
+          if (error instanceof InvalidFeedbackAudioUrlError) {
+            return reply.code(400).send({ code: "FEEDBACK_AUDIO_INVALID", message: "请先上传私有点评音频" });
+          }
+          if (error instanceof HomeworkAccessError) {
+            return reply.code(404).send({ code: "HOMEWORK_SUBMISSION_NOT_FOUND", message: "没有找到可查看的作业提交" });
+          }
+          throw error;
+        }
       },
     );
 
@@ -529,7 +963,7 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
       return { submissions: store.listReadAloudSubmissions(100, getScope(user)) };
     });
 
-    app.post<{ Params: { submissionId: string }; Body: ReviewBody }>("/read-aloud-submissions/:submissionId/review", { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { body: { type: "object", additionalProperties: false, required: ["grade"], properties: { grade: { type: "string", enum: ["A", "B", "C", "D"] }, feedbackAudioUrl: { type: "string", minLength: 1, maxLength: 500 } } } } }, async (request, reply) => {
+    app.post<{ Params: { submissionId: string }; Body: ReviewBody }>("/read-aloud-submissions/:submissionId/review", { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { body: { type: "object", additionalProperties: false, required: ["grade"], properties: { grade: { type: "string", enum: REVIEW_GRADES }, feedbackAudioUrl: { type: "string", minLength: 1, maxLength: 500 } } } } }, async (request, reply) => {
       const user = (await getStaffUser(store, request))!;
       try { return { submission: store.reviewReadingSubmission({ submissionId: request.params.submissionId, grade: request.body.grade, feedbackAudioUrl: request.body.feedbackAudioUrl, scope: getScope(user) }) }; }
       catch (error) { if (error instanceof ReviewSubmissionNotFoundError) return reply.code(404).send({ code: "SUBMISSION_NOT_FOUND", message: "没有找到可批改的当前录音" }); if (error instanceof InvalidFeedbackAudioUrlError) return reply.code(400).send({ code: "FEEDBACK_AUDIO_INVALID", message: "请先上传私有点评音频" }); throw error; }
@@ -540,7 +974,7 @@ export function createAdminRoutes(store: AccountStore, options: AdminRouteOption
       return { submissions: store.listPracticeRecordingSubmissions(100, getScope(user)) };
     });
 
-    app.post<{ Params: { submissionId: string }; Body: ReviewBody }>("/practice-recording-submissions/:submissionId/review", { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { body: { type: "object", additionalProperties: false, required: ["grade"], properties: { grade: { type: "string", enum: ["A", "B", "C", "D"] }, feedbackAudioUrl: { type: "string", minLength: 1, maxLength: 500 } } } } }, async (request, reply) => {
+    app.post<{ Params: { submissionId: string }; Body: ReviewBody }>("/practice-recording-submissions/:submissionId/review", { preHandler: (request, reply) => requireStaff(store, request, reply), schema: { body: { type: "object", additionalProperties: false, required: ["grade"], properties: { grade: { type: "string", enum: REVIEW_GRADES }, feedbackAudioUrl: { type: "string", minLength: 1, maxLength: 500 } } } } }, async (request, reply) => {
       const user = (await getStaffUser(store, request))!;
       try { return { submission: store.reviewPracticeRecordingSubmission({ submissionId: request.params.submissionId, grade: request.body.grade, feedbackAudioUrl: request.body.feedbackAudioUrl, scope: getScope(user) }) }; }
       catch (error) { if (error instanceof ReviewSubmissionNotFoundError) return reply.code(404).send({ code: "SUBMISSION_NOT_FOUND", message: "没有找到可批改的当前录音" }); if (error instanceof InvalidFeedbackAudioUrlError) return reply.code(400).send({ code: "FEEDBACK_AUDIO_INVALID", message: "请先上传私有点评音频" }); throw error; }

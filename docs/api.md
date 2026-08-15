@@ -43,7 +43,7 @@ Returns the current public staff account plus speech-assessment provider availab
 
 ### `GET /api/admin/users`
 
-Administrators receive paginated teacher and student accounts. Teachers receive only active students in their assigned active classrooms.
+Administrators receive paginated teacher and student accounts. Teachers receive only active students in their assigned active classrooms; classroom editing uses the student-candidate endpoint below when a teacher needs to add active students who are not already in one of their classes.
 
 Query parameters:
 
@@ -64,11 +64,15 @@ Administrator only. Accepts `{ "status": "ACTIVE" }` or `{ "status": "DISABLED" 
 
 ### `GET /api/admin/classrooms`
 
-Administrators receive all classrooms. Teachers receive assigned classrooms only. Each classroom contains its public teacher/student members and `ACTIVE` or `ARCHIVED` status.
+Administrators receive all classrooms. Teachers receive assigned classrooms only. Each classroom contains its public teacher/student members and `ACTIVE` or `ARCHIVED` status. Teacher workspaces list only assigned active classrooms for publishing, review, statistics, rewards, and student membership editing.
+
+### `GET /api/admin/classroom-student-candidates`
+
+Returns active `STUDENT` accounts that can be selected in the classroom editor. Administrators receive every active student. Teachers receive active student candidates for assigning to their own active classrooms; this endpoint never returns teachers, disabled users, credentials, or membership write permissions.
 
 ### `POST /api/admin/classrooms`
 
-Administrator only. Creates an active classroom and validates all members against active database roles:
+Creates an active classroom and validates all members against active database roles. Administrators may supply both `teacherIds` and `studentIds`. Teachers may create a classroom assigned to themselves with a name and active `studentIds`; teacher membership and status fields are not teacher-writable.
 
 ```json
 {
@@ -80,7 +84,7 @@ Administrator only. Creates an active classroom and validates all members agains
 
 ### `PATCH /api/admin/classrooms/:classroomId`
 
-Administrator only. Updates the name or status and replaces supplied `teacherIds` or `studentIds`. Membership arrays are validated atomically.
+Administrators may update the name or status and replace supplied `teacherIds` or `studentIds`. Teachers may update the name and replace `studentIds` only for their assigned active classrooms. Teacher requests that include `teacherIds` or `status`, or target an archived/unassigned classroom, are rejected. Membership arrays are validated atomically against active database roles.
 
 ### `GET /api/admin/point-policies`
 
@@ -103,9 +107,29 @@ Administrators may replace any active classroom policy; teachers may replace onl
 
 Daily points accept `0..100`, completion points accept `0..500`, and up to 20 unique streak milestones accept `2..365` days and `1..1000` points. Zero disables the corresponding visible award while the server retains an internal idempotency claim, so a later policy change or restart cannot back-award it. Changes apply only to future ledger events.
 
+### `GET /api/admin/homework-templates`
+
+Returns the staff homework library newest-first. Teachers see templates they own plus templates referenced by homework instances visible through their active classrooms; administrators see every non-deleted template. Rows include template id, owner, title, instructions, template type, question count, and timestamps needed to choose a template for later assignment.
+
+Optional query parameters are `page`, `pageSize`, `search`, and `templateType`. Search matches the template title; `templateType` limits rows to one supported homework type. Filtering and pagination are enforced server-side using the same authorization scope as the returned rows.
+
+### `GET /api/admin/homework-templates/:templateId`
+
+Returns one accessible library template with ordered picture-book cards or generic items so the client can preview images, play sample audio, and publish the same content to another classroom or student set. Deleted or out-of-scope templates return `404`.
+
+### `POST /api/admin/homework-templates`
+
+Creates a reusable homework-library template without assigning it. The body uses `title`, `instructions`, `templateType`, and either ordered `cards` for picture-book read-aloud or ordered `items` for sentence and word homework. Validation matches inline homework publication. The response returns the created template detail.
+
+### `DELETE /api/admin/homework-templates/:templateId`
+
+Deletes a library template from future selection. Teachers may delete only templates they own, including when they can reuse a different owner's template through classroom scope; administrators may delete any template. Deletion does not alter existing homework instances, because every published instance stores its own immutable snapshot.
+
+Legacy `STANDARD` entries may appear as read-only, empty previews after migration, but they cannot create new homework instances.
+
 ### `POST /api/admin/homeworks`
 
-Publishes a recurring homework plan for selected active students and returns the created plan plus target, generated occurrence, and completed occurrence counts. Teachers must provide an assigned active `classroomId`, and every recipient must be an active student in that classroom. Administrators may send a classroom id or `null`.
+Publishes a recurring homework instance for selected active students and returns the created instance plus target, generated occurrence, and completed occurrence counts. Teachers must provide an assigned active `classroomId`, and every recipient must be an active student in that classroom. Administrators may send a classroom id or `null`. Clients must collect and confirm the first publish time before sending `schedule.startsAt`; the server treats that timestamp as the first generated occurrence.
 
 ```json
 {
@@ -122,9 +146,9 @@ Publishes a recurring homework plan for selected active students and returns the
 }
 ```
 
-`unit` supports `DAY` and `WEEK`. `interval` controls the gap between triggers; `occurrenceLimit` is the total number of triggers per selected student. The detailed model is in `docs/homework-model.md`.
+`unit` supports `DAY` and `WEEK`. `interval` controls the gap between triggers; `occurrenceLimit` is the total number of triggers per selected student. The detailed model is in `docs/homework-model.md`. To publish from the homework library, send `templateId`; the server copies that template into the immutable homework-instance snapshot before creating recipients and occurrences.
 
-Set `templateType` to `READ_ALOUD_PICTURE_BOOK` and add ordered `cards` to publish a picture-book read-aloud homework:
+To publish new content, omit `templateId` and send inline content. The server atomically creates a reusable library template and the assigned homework instance in the same transaction. Set `templateType` to `READ_ALOUD_PICTURE_BOOK` and add ordered `cards` to publish a picture-book read-aloud homework:
 
 ```json
 {
@@ -153,13 +177,17 @@ Sentence and word templates use ordered `items`:
 }
 ```
 
-Supported types are `SENTENCE_READ_ALOUD`, `WORD_READ_ALOUD`, `WORD_IMAGE_MATCH`, `WORD_SCRAMBLE`, and `WORD_FILL_BLANK`. Word read-aloud requires `imageUrl`, `answerText`, and `sampleAudioUrl`; it does not require `promptText`. Objective word items require image and answer word; fill-blank also requires `promptText` containing `____`. Image-match and fill-blank may include `choices`. The server rejects invalid item combinations.
+Supported types are `SENTENCE_READ_ALOUD`, `WORD_READ_ALOUD`, `WORD_IMAGE_MATCH`, `WORD_SCRAMBLE`, and `WORD_FILL_BLANK`. Word read-aloud requires `imageUrl`, `answerText`, and `sampleAudioUrl`; it does not require `promptText`. Objective word items require image and answer word; fill-blank also requires `promptText` containing `____`. Image-match and fill-blank may include `choices`. The server rejects invalid item combinations. A publish request must use either `templateId` or inline content, not both.
 
 ### `GET /api/admin/homeworks`
 
-Returns accessible plans newest-first with classroom metadata, target count, generated occurrence count, completed occurrence count, and lifecycle status. Administrators see all plans; teachers see assigned active-classroom plans plus legacy plans they originally published.
+Returns accessible homework instances newest-first with classroom metadata, target count, generated occurrence count, completed occurrence count, and lifecycle status. Administrators see all instances; teachers see assigned active-classroom instances plus legacy instances they originally published.
 
-Optional query parameters are `page` and `pageSize`; defaults are `1` and `20`, and `pageSize` is capped at `50`. The response includes `{ homeworks, pagination: { page, pageSize, total } }`, where `total` uses the same authorization scope as the rows.
+Optional query parameters are `page`, `pageSize`, `search`, `status`, and `classroomId`; defaults are `1` and `20`, and `pageSize` is capped at `50`. Search matches the homework title. Filtering and pagination are enforced server-side using the same authorization scope as the returned rows. The response includes `{ homeworks, pagination: { page, pageSize, total } }`.
+
+### `GET /api/admin/homeworks/:homeworkId/latest-cycle`
+
+Returns the accessible homework instance and its most recent occurrence sequence whose `scheduledAt` has started. The cycle contains every assigned student, even when the student has no submission. A student is `CHECKED_IN` only when the occurrence is `COMPLETED`, meaning every configured card or item is complete; a student with at least one current submission but an incomplete occurrence is `IN_PROGRESS`, and a student with no submission is `NOT_STARTED`. Each row includes submitted/total question progress and the latest submission time. Before the first sequence starts, `cycle` is null.
 
 ### `PATCH /api/admin/homeworks/:homeworkId/status`
 
@@ -187,7 +215,7 @@ Requires student authentication and one multipart audio `file` field. Optional `
 
 ### `GET /api/student/practice-homeworks`
 
-Returns available sentence and word occurrences scheduled during today and the preceding four `Asia/Shanghai` calendar days, with template type, item totals, completed-item count, latest-submission reviewed-item count, and `hasViewed` derived from homework learning sessions. Objective templates always return zero reviewed items because they do not require staff review; older assigned occurrences remain available from homework history.
+Returns available sentence and word occurrences scheduled during today and the preceding four `Asia/Shanghai` calendar days, with template type, item totals, completed-item count, latest-submission reviewed-item count, and `hasViewed` derived from homework learning sessions. Both recording and objective templates count the latest staff reviews; older assigned occurrences remain available from homework history.
 
 ### `GET /api/student/practice-homeworks/:occurrenceId`
 
@@ -257,9 +285,31 @@ Returns the authenticated student's own check-in aggregate:
 }
 ```
 
-## Teacher read-aloud review
+## Teacher homework review
 
 Teacher access throughout this section is limited to assigned active classrooms plus legacy homework originally published by that teacher. Administrators retain global access.
+
+### `GET /api/admin/homework-submission-groups`
+
+Returns paginated student-homework review groups, one row per published homework instance. This is the default teacher workspace list. Each group includes homework id/title, classroom, lifecycle status, latest submission time, assigned-student count, submitted-occurrence count, pending/reviewed occurrence counts, and submitted/reviewed question counts.
+
+Optional query parameters are `page`, `pageSize`, `reviewMode`, and `studentSearch`. Omitted `reviewMode` defaults to `PENDING`, which returns instances containing at least one latest submission that still needs review; `reviewMode=ALL` returns the history view. Pending group summaries retain complete counts across the matching submitted occurrences in each instance. `studentSearch` matches student display names and phone numbers within accessible occurrences. Filtering and pagination are enforced server-side using the same authorization scope as the returned groups.
+
+### `GET /api/admin/homework-submissions`
+
+Returns paginated student occurrence conversations for an accessible published homework instance or for compatibility review lists. Each row represents one student's occurrence under one published homework. It includes student, published homework, classroom, latest submission time, configured question count, submitted count, reviewed count, and `IN_PROGRESS`, `PENDING_REVIEW`, or `REVIEWED` status.
+
+Optional query parameters are `page`, `pageSize`, `studentId`, `studentSearch`, `homeworkId`, `reviewMode`, `submittedFrom`, and `submittedTo`. The mobile teacher workspace sends `reviewMode=PENDING` for work with an unreviewed latest submission and `reviewMode=ALL` for history; omitting the parameter retains the compatibility all-submission list. Time values are ISO-8601 timestamps and filter the occurrence's latest submission time. The response also includes accessible student and homework filter options.
+
+### `GET /api/admin/homework-submissions/:occurrenceId`
+
+Returns every configured question in order for one accessible conversation. Each question includes its presentation content and latest submission when present: submitted answer or recording, server correctness, normalized speech assessment, submission time, staff grade, feedback audio, and review status. Unsubmitted questions are included with a null submission ID.
+
+### `POST /api/admin/homework-submissions/:occurrenceId/:sourceKind/:submissionId/review`
+
+Accepts a `SSS`, `SS`, `S`, `A`, or `B` `grade` and optional private `feedbackAudioUrl` for the latest `CARD` or `ITEM` submission. It supports picture-book, recording, and objective items, rejects stale or mismatched submissions, preserves automatic correctness, and returns the refreshed conversation with updated review progress. Existing legacy `C` or `D` grades may be returned for old submissions but are read-only and rejected on new review writes.
+
+The following recording-only endpoints remain available for compatibility.
 
 ### `GET /api/admin/read-aloud-submissions`
 
@@ -267,7 +317,7 @@ Requires an active administrator or teacher bearer token. Returns the latest stu
 
 ### `POST /api/admin/read-aloud-submissions/:submissionId/review`
 
-Requires an active administrator or teacher bearer token. Accepts an A-D `grade` and an optional uploaded `feedbackAudioUrl`. It updates the newest submission for that student and card; the student card then reports `GRADED`.
+Requires an active administrator or teacher bearer token. Accepts a `SSS`, `SS`, `S`, `A`, or `B` `grade` and an optional uploaded `feedbackAudioUrl`. It updates the newest submission for that student and card; the student card then reports `GRADED`.
 
 ### `GET /api/admin/practice-recording-submissions`
 
@@ -277,7 +327,7 @@ The public `assessment` object contains `id`, `status`, `provider`, nullable ove
 
 ### `POST /api/admin/practice-recording-submissions/:submissionId/review`
 
-Requires an active administrator or teacher bearer token. Accepts an A-D `grade` and optional `feedbackAudioUrl` for the latest generic recording attempt. A re-recorded item must be reviewed through its new submission ID.
+Requires an active administrator or teacher bearer token. Accepts a `SSS`, `SS`, `S`, `A`, or `B` `grade` and optional `feedbackAudioUrl` for the latest generic recording attempt. A re-recorded item must be reviewed through its new submission ID.
 
 ### `GET /api/admin/students/:studentId/learning-stats`
 

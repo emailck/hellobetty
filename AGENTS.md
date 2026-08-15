@@ -16,10 +16,13 @@
 - Account secrets must never be stored or logged in plaintext.
 - Staff authority must come from the current database account and classroom membership, not a role claim cached in a client or token.
 - Do not imply that placeholder homework data is backed by a finished homework service.
-- A published homework plan must retain its selected students and generated trigger instances so later submission and grading data has a stable owner.
+- A published homework instance must retain its selected students and generated trigger occurrences so later submission and grading data has a stable owner.
+- Staff homework check-in views use the instance's most recently started occurrence sequence, retain every assigned student, and count a student as checked in only when that occurrence has completed every configured question; partial submissions remain in progress.
 - Student speech recordings and teacher voice feedback are private assignment artifacts; access is limited to the assigned student and authorized staff workflows.
-- Teachers operate only assigned active classrooms; administrators own account and classroom membership changes.
-- Machine speech assessment is asynchronous reference data; each recording attempt owns its own result, failed jobs may be retried independently, and staff A-D review remains the final evaluation.
+- Administrators manage accounts, classroom status, and classroom teacher membership; teachers may create active classrooms for themselves and manage student membership only inside their assigned active classrooms.
+- Machine speech assessment is asynchronous reference data; each recording attempt owns its own result, failed jobs may be retried independently, and staff `SSS`/`SS`/`S`/`A`/`B` review remains the final evaluation. Legacy `C`/`D` grades may be displayed read-only but cannot be newly assigned.
+- Staff student-homework review starts grouped by published homework instance, then opens the student occurrence list for that instance. Every latest submitted question, including server-scored objective work, remains visible and accepts a `SSS`/`SS`/`S`/`A`/`B` human grade without replacing automatic correctness.
+- The mobile teacher workspace starts on `学生作业` and exposes `学生作业`, `已发布作业`, `作业库`, and `班级管理` from the top-left menu on every primary staff page.
 - Student points are server-owned, append-only learning records; authorized staff may configure future classroom check-in, completion, and streak rewards, clients never submit awards, and repeated activity must not duplicate an award source.
 
 ## Work Guidance

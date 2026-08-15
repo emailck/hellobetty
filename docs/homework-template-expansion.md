@@ -4,7 +4,7 @@
 
 This increment adds sentence read-aloud and word homework to the existing recurring homework plan model.
 
-- `SENTENCE_READ_ALOUD`: ordered sentences with a model recording. Students record sentence by sentence. Staff can assign A-D and optional voice feedback; a later student recording becomes the current unreviewed attempt.
+- `SENTENCE_READ_ALOUD`: ordered sentences with a model recording. Students record sentence by sentence. Staff can assign `SSS`, `SS`, `S`, `A`, or `B` and optional voice feedback; a later student recording becomes the current unreviewed attempt.
 - `WORD_READ_ALOUD`: ordered image, English word, and model recording cards with the same recording and review lifecycle.
 - `WORD_IMAGE_MATCH`: image-to-English-word matching.
 - `WORD_SCRAMBLE`: image-led English-word letter ordering.

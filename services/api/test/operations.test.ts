@@ -207,8 +207,9 @@ describe("operations milestone backend", () => {
     const teacherClassrooms = await app.inject({ method: "GET", url: "/api/admin/classrooms", headers: { authorization: `Bearer ${teacherToken}` } });
     expect(teacherClassrooms.statusCode).toBe(200);
     expect(teacherClassrooms.json().classrooms.map((classroom: { id: string }) => classroom.id)).toEqual([classroomId]);
-    const teacherClassroomUpdate = await app.inject({ method: "PATCH", url: `/api/admin/classrooms/${classroomId}`, headers: { authorization: `Bearer ${teacherToken}` }, payload: { name: "Teacher cannot rename" } });
-    expect(teacherClassroomUpdate.statusCode).toBe(403);
+    const teacherClassroomUpdate = await app.inject({ method: "PATCH", url: `/api/admin/classrooms/${classroomId}`, headers: { authorization: `Bearer ${teacherToken}` }, payload: { name: "Teacher can rename" } });
+    expect(teacherClassroomUpdate.statusCode).toBe(200);
+    expect(teacherClassroomUpdate.json().classroom.name).toBe("Teacher can rename");
 
     const teacherUsers = await app.inject({ method: "GET", url: "/api/admin/users", headers: { authorization: `Bearer ${teacherToken}` } });
     expect(teacherUsers.statusCode).toBe(200);

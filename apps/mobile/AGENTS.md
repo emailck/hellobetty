@@ -26,18 +26,23 @@
 - A card modal presents the page image, English reference text when available, sample audio, personal audio when present, teacher feedback audio when present, grade, and the current completion status.
 - Send the current bearer token when playing private `/uploads/submissions/*` recording URLs; public homework assets remain token-independent.
 - Teacher voice feedback uploads declare `purpose=FEEDBACK` and must be treated as private review artifacts rather than public homework assets.
-- Teachers and administrators enter the mobile review workspace, where they can listen to student recordings, set an A-D grade, and record optional voice feedback.
-- The mobile staff workspace exposes review, publish, published-history, and classroom-management destinations through stable icon actions that remain usable on phone widths.
-- Published homework history paginates every server-authorized plan newest-first, shows classroom, template, recurrence, recipient and completion counts, and lifecycle state, and supports pause, resume, and confirmed terminal end actions. Ended `ARCHIVED` homework is labeled `已结束` for staff.
-- Mobile classroom management lets teachers inspect only their assigned classroom members. Administrators may create classrooms, replace active teacher/student memberships, rename, archive, and restore classrooms; all mutations remain server-authorized.
-- The mobile review workspace keeps picture-book and sentence/word recording queues separate at the API boundary while presenting the same A-D and optional voice-feedback interaction.
+- Teachers and administrators enter the mobile review workspace through homework-occurrence cards modeled after the student homework list. Each card shows student, published homework, latest submission time, submitted progress, and review progress; filters cover student, homework, and submission date range. Student and homework filters are typeahead inputs: case-insensitive partial terms narrow authorized options, an exact or sole match selects automatically, and ambiguous matches require an explicit option selection.
+- The mobile staff workspace defaults to `学生作业` and exposes `学生作业`, `已发布作业`, `作业库`, and `班级管理` through a top-left hamburger menu on every primary staff page; publish remains a direct page command and logout is separated at the bottom of the menu.
+- Mobile staff review is grouped by published homework instance first, defaults to pending review, supports direct student-name search, then opens a student occurrence list before per-question review.
+- Published homework history paginates every server-authorized plan newest-first, supports name/status/classroom filtering, shows classroom, template, recurrence, recipient and completion counts, and lifecycle state, and supports preview, latest-cycle view, reuse, pause, resume, and confirmed terminal end actions. Ended `ARCHIVED` homework is labeled `已结束` for staff.
+- Each mobile published-homework card opens the server-owned latest started cycle and shows every assigned student as `已打卡`, `进行中`, or `未开始`; only full occurrence completion is a check-in.
+- Mobile classroom management lets teachers create and edit their assigned active classrooms' student memberships while keeping their own teacher identity fixed. Administrators may create classrooms, replace active teacher/student memberships, rename, archive, and restore classrooms; all mutations remain server-authorized.
+- Opening a mobile review card shows every configured question in a conversation flow with its latest answer or recording, automatic correctness or speech assessment, submission time, SSS/SS/S/A/B grade, and optional voice-feedback action. Unsubmitted questions remain visible but cannot be reviewed.
 - The mobile staff workspace reads `/api/admin/context`; when speech assessment is unconfigured, it shows a neutral operations message and does not promise future machine scores.
 - Teachers and administrators can publish picture-book homework from mobile: choose students, enter required English reference text, select page images and sample audio, set recurrence, and publish the same server-side plan used by the web console.
 - Mobile homework publishing supports picture-book, sentence read-aloud, word read-aloud, image match, word scramble, and image-led fill-blank templates.
+- Mobile teacher publishing treats reusable homework content as `作业库` templates and each assigned run as a published homework instance; creating new content from the publish flow saves the content to `作业库` while publishing an instance.
+- The mobile staff workspace exposes a `作业库` entry for listing, adding, deleting owned templates, previewing, and reusing authorized homework templates; template reuse must ask for a fresh class/student/schedule selection instead of carrying old recipients. Legacy `STANDARD` templates with no content remain preview-only.
+- Mobile publishing sample audio may come from a file upload or an explicit live-recording action; each item exposes playback and allows the teacher to upload or record a replacement.
 - Mobile homework publishing reads `/api/admin/classrooms`; teachers must publish to an active assigned classroom and choose only active students in that classroom, while administrators may keep an unscoped authorized-student workflow.
 - Administrator unscoped mobile publishing must load the full paginated `STUDENT`-role list before recipient selection; teacher accounts must never appear as candidates.
-- Mobile publishing keeps one per-teacher local template draft with form data and uploaded asset URLs. Restore it when the teacher returns, clear it only after successful publication, and provide an item-by-item preview before publishing.
-- The mobile staff review context shows normalized machine assessment status and scores alongside student audio while keeping A-D grading and optional voice feedback as independent staff actions.
+- Mobile publishing keeps one per-teacher local template draft with form data, first-start time, and durable app-local copies of selected or recorded assets. Selection and recording must update item previews immediately, support image replacement plus audio playback/replacement/re-recording, and must not upload until the teacher completes validation and confirms the final publication summary. Restore the draft when the teacher returns and clear its data and local assets only after successful publication.
+- The mobile staff review context shows normalized machine assessment status and scores alongside student audio while keeping SSS/SS/S/A/B grading and optional voice feedback as independent staff actions.
 - Student and staff speech-assessment polling uses a four-second no-overlap refresh and stops after five minutes for unchanged queued or processing assessment ID/status states; reopening a screen, seeing a new assessment ID, or seeing queued/processing status progress starts a new window.
 
 ## Work Guidance
@@ -45,7 +50,7 @@
 - Keep `metro.config.js` rooted at this application so native bundles resolve `index.ts` rather than the workspace root.
 - Follow the `coco` visual language: `#fbfbfb` background, dark headings, grey help text, soft dividers, capsule fields, and pale-blue accents.
 - Use platform-safe text symbols only when no icon library is installed.
-- Request microphone permission only from an explicit student recording or teacher feedback action.
+- Request microphone permission only from an explicit student recording, teacher sample-audio recording, or teacher feedback action.
 - Request photo-library and document access only from explicit teacher asset-selection actions.
 
 ## Verification

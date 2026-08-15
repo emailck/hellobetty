@@ -88,13 +88,13 @@ describe("generic homework templates", () => {
       { templateType: "SENTENCE_READ_ALOUD", items: [{ promptText: "I like apples." }] },
       {
         templateType: "WORD_READ_ALOUD",
-        items: [{ promptText: "apple", sampleAudioUrl: "/uploads/apple.mp3", answerText: "apple" }],
+        items: [{ promptText: "apple", sampleAudioUrl: "/uploads/assets/apple.mp3", answerText: "apple" }],
       },
       { templateType: "WORD_IMAGE_MATCH", items: [{ answerText: "apple" }] },
-      { templateType: "WORD_SCRAMBLE", items: [{ imageUrl: "/uploads/apple.png" }] },
+      { templateType: "WORD_SCRAMBLE", items: [{ imageUrl: "/uploads/assets/apple.png" }] },
       {
         templateType: "WORD_FILL_BLANK",
-        items: [{ promptText: "I like apples.", imageUrl: "/uploads/apple.png", answerText: "apples" }],
+        items: [{ promptText: "I like apples.", imageUrl: "/uploads/assets/apple.png", answerText: "apples" }],
       },
     ];
     for (const invalid of invalidCases) {
@@ -117,7 +117,7 @@ describe("generic homework templates", () => {
         ...basePayload,
         studentIds: [student.id, "missing-student"],
         templateType: "SENTENCE_READ_ALOUD",
-        items: [{ promptText: "Hello, Betty.", sampleAudioUrl: "/uploads/hello.mp3" }],
+        items: [{ promptText: "Hello, Betty.", sampleAudioUrl: "/uploads/assets/hello.mp3" }],
       },
     });
     expect(invalidStudent.statusCode).toBe(400);
@@ -127,30 +127,30 @@ describe("generic homework templates", () => {
     const validCases = [
       {
         templateType: "SENTENCE_READ_ALOUD",
-        items: [{ promptText: "I like apples.", sampleAudioUrl: "/uploads/sentence.mp3" }],
+        items: [{ promptText: "I like apples.", sampleAudioUrl: "/uploads/assets/sentence.mp3" }],
       },
       {
         templateType: "WORD_READ_ALOUD",
         items: [{
           promptText: "apple",
-          imageUrl: "/uploads/apple.png",
-          sampleAudioUrl: "/uploads/apple.mp3",
+          imageUrl: "/uploads/assets/apple.png",
+          sampleAudioUrl: "/uploads/assets/apple.mp3",
           answerText: "apple",
         }],
       },
       {
         templateType: "WORD_IMAGE_MATCH",
-        items: [{ imageUrl: "/uploads/apple.png", answerText: "apple", choices: ["apple", "pear"] }],
+        items: [{ imageUrl: "/uploads/assets/apple.png", answerText: "apple", choices: ["apple", "pear"] }],
       },
       {
         templateType: "WORD_SCRAMBLE",
-        items: [{ imageUrl: "/uploads/apple.png", answerText: "apple" }],
+        items: [{ imageUrl: "/uploads/assets/apple.png", answerText: "apple" }],
       },
       {
         templateType: "WORD_FILL_BLANK",
         items: [{
           promptText: "I like ____.",
-          imageUrl: "/uploads/apple.png",
+          imageUrl: "/uploads/assets/apple.png",
           answerText: "apples",
           choices: ["apples", "pears"],
         }],
@@ -177,8 +177,8 @@ describe("generic homework templates", () => {
       studentIds: [student.id],
       templateType: "SENTENCE_READ_ALOUD",
       items: [
-        { promptText: "I see a cat.", sampleAudioUrl: "/uploads/cat.mp3" },
-        { promptText: "It is happy.", sampleAudioUrl: "/uploads/happy.mp3" },
+        { promptText: "I see a cat.", sampleAudioUrl: "/uploads/assets/cat.mp3" },
+        { promptText: "It is happy.", sampleAudioUrl: "/uploads/assets/happy.mp3" },
       ],
       schedule: schedule(),
     });
@@ -290,13 +290,13 @@ describe("generic homework templates", () => {
       items: [
         {
           promptText: "I see an ____.",
-          imageUrl: "/uploads/apple.png",
+          imageUrl: "/uploads/assets/apple.png",
           answerText: "apple",
           choices: ["apple", "orange"],
         },
         {
           promptText: "It is ____.",
-          imageUrl: "/uploads/red.png",
+          imageUrl: "/uploads/assets/red.png",
           answerText: "red",
           choices: ["red", "blue"],
         },

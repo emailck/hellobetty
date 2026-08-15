@@ -86,7 +86,7 @@ describe("learning statistics", () => {
       title: "Sentence",
       studentIds: [student.id],
       templateType: "SENTENCE_READ_ALOUD",
-      items: [{ promptText: "Hello.", sampleAudioUrl: "/uploads/hello.mp3" }],
+      items: [{ promptText: "Hello.", sampleAudioUrl: "/uploads/assets/hello.mp3" }],
       schedule: schedule(),
     });
     const practice = store.listStudentPracticeOccurrences(student.id)[0];
@@ -120,8 +120,8 @@ describe("learning statistics", () => {
       studentIds: [student.id],
       templateType: "READ_ALOUD_PICTURE_BOOK",
       cards: [{
-        imageUrl: "/uploads/page.png",
-        sampleAudioUrl: "/uploads/page.mp3",
+        imageUrl: "/uploads/assets/page.png",
+        sampleAudioUrl: "/uploads/assets/page.mp3",
         referenceText: "Read this page.",
       }],
       schedule: schedule(),
@@ -159,7 +159,7 @@ describe("learning statistics", () => {
       title: "Long practice",
       studentIds: [student.id],
       templateType: "SENTENCE_READ_ALOUD",
-      items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/practice.mp3" }],
+      items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/assets/practice.mp3" }],
       schedule: schedule("2026-07-01T00:00:00.000Z"),
     });
     const startedAt = new Date("2026-07-13T16:30:00.000Z");
@@ -255,7 +255,7 @@ describe("learning statistics", () => {
       title: "Pause before completion",
       studentIds: [student.id],
       templateType: "SENTENCE_READ_ALOUD",
-      items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/practice.mp3" }],
+      items: [{ promptText: "Practice.", sampleAudioUrl: "/uploads/assets/practice.mp3" }],
       schedule: schedule("2026-07-01T00:00:00.000Z"),
     });
     const occurrence = store.listStudentHomeworkHistory({

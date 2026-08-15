@@ -38,6 +38,7 @@ export interface UserRecord {
 
 export interface HomeworkRecord {
   id: string;
+  templateId: string | null;
   publisherId: string;
   classroomId: string | null;
   title: string;
@@ -51,6 +52,50 @@ export interface HomeworkRecord {
   publishedAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface HomeworkTemplateRecord {
+  id: string;
+  creatorId: string;
+  title: string;
+  instructions: string | null;
+  templateType: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HomeworkTemplateSummary extends HomeworkTemplateRecord {
+  creatorName: string;
+  questionCount: number;
+  publishedHomeworkCount: number;
+  lastPublishedAt: string | null;
+}
+
+export interface HomeworkTemplateCardRecord {
+  id: string;
+  templateId: string;
+  position: number;
+  imageUrl: string;
+  sampleAudioUrl: string;
+  referenceText: string | null;
+}
+
+export interface HomeworkTemplateItemRecord {
+  id: string;
+  templateId: string;
+  position: number;
+  promptText: string | null;
+  imageUrl: string | null;
+  sampleAudioUrl: string | null;
+  answerText: string | null;
+  choices: string[] | null;
+}
+
+export interface HomeworkTemplateDetail {
+  template: HomeworkTemplateSummary;
+  cards: HomeworkTemplateCardRecord[];
+  items: HomeworkTemplateItemRecord[];
+  questions: PublishedHomeworkQuestion[];
 }
 
 export interface PictureBookCardRecord {
@@ -103,6 +148,12 @@ export interface ClassroomMember {
   updatedAt: string;
 }
 
+export interface ClassroomStudentCandidate {
+  id: string;
+  phone: string;
+  displayName: string;
+}
+
 export interface ClassroomSummary extends ClassroomRecord {
   teachers: ClassroomMember[];
   students: ClassroomMember[];
@@ -119,9 +170,109 @@ export interface HomeworkSummary extends HomeworkRecord {
   completedOccurrenceCount: number;
 }
 
+export interface PublishedHomeworkRecipient {
+  id: string;
+  displayName: string;
+  phone: string;
+}
+
+export interface PublishedHomeworkQuestion {
+  sourceKind: "CARD" | "ITEM";
+  id: string;
+  position: number;
+  promptText: string | null;
+  referenceText: string | null;
+  imageUrl: string | null;
+  sampleAudioUrl: string | null;
+  answerText: string | null;
+  choices: string[] | null;
+}
+
+export interface PublishedHomeworkDetail {
+  homework: HomeworkSummary;
+  recipients: PublishedHomeworkRecipient[];
+  questions: PublishedHomeworkQuestion[];
+}
+
+export type HomeworkCycleStudentStatus = "CHECKED_IN" | "IN_PROGRESS" | "NOT_STARTED";
+
+export interface HomeworkCycleStudent {
+  occurrenceId: string;
+  studentId: string;
+  studentName: string;
+  occurrenceStatus: string;
+  status: HomeworkCycleStudentStatus;
+  submittedCount: number;
+  totalCount: number;
+  lastSubmittedAt: string | null;
+}
+
+export interface LatestHomeworkCycle {
+  sequenceNumber: number;
+  scheduledAt: string;
+  studentCount: number;
+  checkedInCount: number;
+  inProgressCount: number;
+  notStartedCount: number;
+  students: HomeworkCycleStudent[];
+}
+
+export interface LatestHomeworkCycleResult {
+  homework: HomeworkSummary;
+  cycle: LatestHomeworkCycle | null;
+}
+
 export interface StaffScope {
   userId: string;
   role: string;
+}
+
+export const REVIEW_GRADES = ["SSS", "SS", "S", "A", "B"] as const;
+export type ReviewGrade = typeof REVIEW_GRADES[number];
+
+export type StaffHomeworkReviewMode = "PENDING" | "ALL";
+
+export interface PublishedHomeworkFilters {
+  search?: string;
+  status?: string;
+  classroomId?: string;
+}
+
+export interface HomeworkTemplateFilters {
+  search?: string;
+  templateType?: string;
+}
+
+export interface StaffHomeworkSubmissionFilters {
+  studentId?: string;
+  studentSearch?: string;
+  homeworkId?: string;
+  submittedFrom?: string;
+  submittedTo?: string;
+  reviewMode?: StaffHomeworkReviewMode;
+}
+
+export interface StaffHomeworkSubmissionListInput extends StaffHomeworkSubmissionFilters {
+  page: number;
+  pageSize: number;
+  scope?: StaffScope;
+}
+
+export interface StaffHomeworkSubmissionGroup {
+  homeworkId: string;
+  title: string;
+  classroomId: string | null;
+  classroomName: string | null;
+  templateType: string;
+  status: string;
+  publishedAt: string;
+  assignedStudentCount: number;
+  submittedOccurrenceCount: number;
+  pendingReviewCount: number;
+  reviewedOccurrenceCount: number;
+  submittedQuestionCount: number;
+  reviewedQuestionCount: number;
+  latestSubmittedAt: string;
 }
 
 export interface SpeechAssessmentQueueItem {
@@ -172,6 +323,8 @@ export class SpeechAssessmentAccessError extends Error {}
 export class SpeechAssessmentRetryError extends Error {}
 export class InvalidPictureBookCardsError extends Error {}
 export class InvalidHomeworkItemsError extends Error {}
+export class HomeworkTemplateAccessError extends Error {}
+export class HomeworkTemplateInUseError extends Error {}
 export class InvalidCardSequenceError extends Error {}
 export class InvalidItemSequenceError extends Error {}
 export class InvalidItemSubmissionError extends Error {}
@@ -222,6 +375,18 @@ interface NormalizedHomeworkItem {
   sampleAudioUrl: string | null;
   answerText: string | null;
   choices: string[] | null;
+}
+
+interface NormalizedPictureBookCard {
+  imageUrl: string | null;
+  sampleAudioUrl: string | null;
+  referenceText: string | null;
+}
+
+interface NormalizedHomeworkContent {
+  templateType: string;
+  cards: NormalizedPictureBookCard[];
+  items: NormalizedHomeworkItem[];
 }
 
 function optionalText(value: string | undefined): string | null {
@@ -329,6 +494,34 @@ function appendStaffHomeworkScope(
   values.push(scope.userId, scope.userId);
 }
 
+function appendStaffHomeworkTemplateScope(
+  clauses: string[],
+  values: SQLInputValue[],
+  scope: StaffScope | undefined,
+  templateAlias = "template",
+): void {
+  if (!scope || isAdminScope(scope)) return;
+  clauses.push(`(
+    ${templateAlias}.creator_id = ?
+    OR EXISTS (
+      SELECT 1 FROM homeworks scoped_homework
+      WHERE scoped_homework.template_id = ${templateAlias}.id
+        AND (
+          (scoped_homework.classroom_id IS NULL AND scoped_homework.publisher_id = ?)
+          OR EXISTS (
+            SELECT 1 FROM classroom_teachers scoped_teacher
+            INNER JOIN classrooms scoped_classroom
+              ON scoped_classroom.id = scoped_teacher.classroom_id
+            WHERE scoped_teacher.classroom_id = scoped_homework.classroom_id
+              AND scoped_teacher.teacher_id = ?
+              AND scoped_classroom.status = 'ACTIVE'
+          )
+        )
+    )
+  )`);
+  values.push(scope.userId, scope.userId, scope.userId);
+}
+
 function appendStaffStudentScope(
   clauses: string[],
   values: SQLInputValue[],
@@ -348,8 +541,122 @@ function appendStaffStudentScope(
   values.push(scope.userId);
 }
 
+const STAFF_HOMEWORK_SUBMISSION_CTES = `
+  WITH latest_card_submissions AS (
+    SELECT submission.*
+    FROM homework_card_submissions submission
+    WHERE NOT EXISTS (
+      SELECT 1 FROM homework_card_submissions newer
+      WHERE newer.occurrence_id = submission.occurrence_id
+        AND newer.card_id = submission.card_id
+        AND newer.student_id = submission.student_id
+        AND newer.attempt_number > submission.attempt_number
+    )
+  ),
+  latest_item_submissions AS (
+    SELECT submission.*
+    FROM homework_item_submissions submission
+    WHERE NOT EXISTS (
+      SELECT 1 FROM homework_item_submissions newer
+      WHERE newer.occurrence_id = submission.occurrence_id
+        AND newer.item_id = submission.item_id
+        AND newer.student_id = submission.student_id
+        AND newer.attempt_number > submission.attempt_number
+    )
+  ),
+  current_submissions AS (
+    SELECT occurrence_id, student_id, submitted_at, reviewed_at, grade
+    FROM latest_card_submissions
+    UNION ALL
+    SELECT occurrence_id, student_id, submitted_at, reviewed_at, grade
+    FROM latest_item_submissions
+  ),
+  submission_progress AS (
+    SELECT occurrence_id,
+      COUNT(*) AS submitted_count,
+      SUM(CASE WHEN reviewed_at IS NOT NULL OR grade IS NOT NULL THEN 1 ELSE 0 END) AS reviewed_count,
+      MAX(submitted_at) AS latest_submitted_at
+    FROM current_submissions
+    GROUP BY occurrence_id
+  )
+`;
+
+function appendPublishedHomeworkFilters(
+  clauses: string[],
+  values: SQLInputValue[],
+  filters: PublishedHomeworkFilters,
+  homeworkAlias = "h",
+): void {
+  const search = filters.search?.trim();
+  if (search) {
+    clauses.push(`${homeworkAlias}.title LIKE ?`);
+    values.push(`%${search}%`);
+  }
+  if (filters.status) {
+    clauses.push(`${homeworkAlias}.status = ?`);
+    values.push(filters.status);
+  }
+  if (filters.classroomId) {
+    clauses.push(`${homeworkAlias}.classroom_id = ?`);
+    values.push(filters.classroomId);
+  }
+}
+
+function appendHomeworkTemplateFilters(
+  clauses: string[],
+  values: SQLInputValue[],
+  filters: HomeworkTemplateFilters,
+  templateAlias = "template",
+): void {
+  const search = filters.search?.trim();
+  if (search) {
+    clauses.push(`${templateAlias}.title LIKE ?`);
+    values.push(`%${search}%`);
+  }
+  if (filters.templateType) {
+    clauses.push(`${templateAlias}.template_type = ?`);
+    values.push(filters.templateType);
+  }
+}
+
+function appendStaffHomeworkSubmissionFilters(
+  clauses: string[],
+  values: SQLInputValue[],
+  filters: StaffHomeworkSubmissionFilters,
+): void {
+  if (filters.studentId) {
+    clauses.push("occurrence.student_id = ?");
+    values.push(filters.studentId);
+  }
+  const studentSearch = filters.studentSearch?.trim();
+  if (studentSearch) {
+    clauses.push("(student.display_name LIKE ? OR student.phone LIKE ?)");
+    values.push(`%${studentSearch}%`, `%${studentSearch}%`);
+  }
+  if (filters.homeworkId) {
+    clauses.push("homework.id = ?");
+    values.push(filters.homeworkId);
+  }
+  if (filters.submittedFrom) {
+    clauses.push("progress.latest_submitted_at >= ?");
+    values.push(filters.submittedFrom);
+  }
+  if (filters.submittedTo) {
+    clauses.push("progress.latest_submitted_at <= ?");
+    values.push(filters.submittedTo);
+  }
+  if (filters.reviewMode === "PENDING") {
+    clauses.push("progress.reviewed_count < progress.submitted_count");
+  }
+}
+
 function isPrivateFeedbackAudioUrl(value: string | undefined): boolean {
   return !value || /^\/uploads\/feedback\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(mp3|wav|m4a|webm|ogg)$/.test(value);
+}
+
+function isPublicHomeworkAssetUrl(value: string, kind: "image" | "audio"): boolean {
+  const extension = kind === "image" ? "(?:jpe?g|png|webp)" : "(?:mp3|wav|m4a|webm|ogg)";
+  return new RegExp(`^/uploads/assets/[0-9a-z._-]+\\.${extension}$`, "i").test(value);
 }
 
 function validateHomeworkItems(
@@ -367,6 +674,13 @@ function validateHomeworkItems(
     const choices = item.choices
       ? [...new Set(item.choices.map((choice) => choice.trim()).filter(Boolean))]
       : null;
+
+    if (imageUrl && !isPublicHomeworkAssetUrl(imageUrl, "image")) {
+      throw new InvalidHomeworkItemsError();
+    }
+    if (sampleAudioUrl && !isPublicHomeworkAssetUrl(sampleAudioUrl, "audio")) {
+      throw new InvalidHomeworkItemsError();
+    }
 
     if (item.choices && (!choices || choices.length === 0)) {
       throw new InvalidHomeworkItemsError();
@@ -403,6 +717,37 @@ function validateHomeworkItems(
   });
 }
 
+function normalizeHomeworkContent(input: {
+  templateType?: string;
+  cards?: Array<{ imageUrl: string; sampleAudioUrl: string; referenceText?: string }>;
+  items?: HomeworkItemInput[];
+}): NormalizedHomeworkContent {
+  const templateType = input.templateType ?? HOMEWORK_TEMPLATE_TYPES.STANDARD;
+  if (!(Object.values(HOMEWORK_TEMPLATE_TYPES) as string[]).includes(templateType)) {
+    throw new InvalidHomeworkItemsError();
+  }
+  const cards = (input.cards ?? []).map((card) => ({
+    imageUrl: optionalText(card.imageUrl),
+    sampleAudioUrl: optionalText(card.sampleAudioUrl),
+    referenceText: optionalText(card.referenceText),
+  }));
+  const items = validateHomeworkItems(templateType, input.items ?? []);
+  if (cards.some((card) =>
+    (card.imageUrl && !isPublicHomeworkAssetUrl(card.imageUrl, "image")) ||
+    (card.sampleAudioUrl && !isPublicHomeworkAssetUrl(card.sampleAudioUrl, "audio")))) {
+    throw new InvalidPictureBookCardsError();
+  }
+  if (
+    templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK &&
+    (cards.length === 0 || cards.some(
+      (card) => !card.imageUrl || !card.sampleAudioUrl || !card.referenceText,
+    ))
+  ) {
+    throw new InvalidPictureBookCardsError();
+  }
+  return { templateType, cards, items };
+}
+
 export class AccountStore {
   private readonly database: DatabaseSync;
 
@@ -420,6 +765,10 @@ export class AccountStore {
   private initialize() {
     this.database.exec(`
       PRAGMA foreign_keys = ON;
+      CREATE TABLE IF NOT EXISTS data_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         phone TEXT NOT NULL UNIQUE,
@@ -460,8 +809,40 @@ export class AccountStore {
       );
       CREATE INDEX IF NOT EXISTS classroom_students_student_idx
         ON classroom_students(student_id, classroom_id);
+      CREATE TABLE IF NOT EXISTS homework_templates (
+        id TEXT PRIMARY KEY,
+        creator_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        title TEXT NOT NULL,
+        instructions TEXT,
+        template_type TEXT NOT NULL DEFAULT 'STANDARD',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS homework_templates_creator_updated_at_idx
+        ON homework_templates(creator_id, updated_at DESC);
+      CREATE TABLE IF NOT EXISTS homework_template_cards (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES homework_templates(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        image_url TEXT NOT NULL,
+        sample_audio_url TEXT NOT NULL,
+        reference_text TEXT,
+        UNIQUE (template_id, position)
+      );
+      CREATE TABLE IF NOT EXISTS homework_template_items (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES homework_templates(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        prompt_text TEXT,
+        image_url TEXT,
+        sample_audio_url TEXT,
+        answer_text TEXT,
+        choices_json TEXT,
+        UNIQUE (template_id, position)
+      );
       CREATE TABLE IF NOT EXISTS homeworks (
         id TEXT PRIMARY KEY,
+        template_id TEXT REFERENCES homework_templates(id) ON DELETE SET NULL,
         publisher_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
         classroom_id TEXT REFERENCES classrooms(id) ON DELETE SET NULL,
         title TEXT NOT NULL,
@@ -661,6 +1042,7 @@ export class AccountStore {
       // Existing databases already have the column after the first upgrade.
     }
     for (const statement of [
+      "ALTER TABLE homeworks ADD COLUMN template_id TEXT REFERENCES homework_templates(id) ON DELETE SET NULL",
       "ALTER TABLE homeworks ADD COLUMN classroom_id TEXT REFERENCES classrooms(id) ON DELETE SET NULL",
       "ALTER TABLE homework_cards ADD COLUMN reference_text TEXT",
       "ALTER TABLE homework_card_submissions ADD COLUMN feedback_audio_url TEXT",
@@ -681,7 +1063,110 @@ export class AccountStore {
       CREATE INDEX IF NOT EXISTS homeworks_classroom_published_at_idx
         ON homeworks(classroom_id, published_at DESC);
     `);
+    if (!this.hasDataMigration("homework-templates-v1")) {
+      this.backfillHomeworkTemplates();
+    }
     this.backfillPointEvents();
+  }
+
+  private hasDataMigration(id: string): boolean {
+    return Boolean(this.database.prepare("SELECT 1 FROM data_migrations WHERE id = ?").get(id));
+  }
+
+  private backfillHomeworkTemplates() {
+    const rows = this.database
+      .prepare(`
+        SELECT id, publisher_id, title, instructions, template_type, created_at, updated_at
+        FROM homeworks
+        WHERE template_id IS NULL
+        ORDER BY created_at ASC, id ASC
+      `)
+      .all() as Array<{
+        id: string;
+        publisher_id: string;
+        title: string;
+        instructions: string | null;
+        template_type: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const templateStatement = this.database.prepare(`
+        INSERT INTO homework_templates (
+          id, creator_id, title, instructions, template_type, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      const updateHomeworkStatement = this.database.prepare(`
+        UPDATE homeworks SET template_id = ? WHERE id = ? AND template_id IS NULL
+      `);
+      const cardRowsStatement = this.database.prepare(`
+        SELECT position, image_url, sample_audio_url, reference_text
+        FROM homework_cards
+        WHERE homework_id = ?
+        ORDER BY position ASC
+      `);
+      const itemRowsStatement = this.database.prepare(`
+        SELECT position, prompt_text, image_url, sample_audio_url, answer_text, choices_json
+        FROM homework_items
+        WHERE homework_id = ?
+        ORDER BY position ASC
+      `);
+      const templateCardStatement = this.database.prepare(`
+        INSERT INTO homework_template_cards (
+          id, template_id, position, image_url, sample_audio_url, reference_text
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      const templateItemStatement = this.database.prepare(`
+        INSERT INTO homework_template_items (
+          id, template_id, position, prompt_text, image_url,
+          sample_audio_url, answer_text, choices_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const row of rows) {
+        const templateId = randomUUID();
+        templateStatement.run(
+          templateId,
+          String(row.publisher_id),
+          String(row.title),
+          row.instructions ? String(row.instructions) : null,
+          String(row.template_type),
+          String(row.created_at),
+          String(row.updated_at),
+        );
+        for (const card of cardRowsStatement.all(row.id) as Array<Record<string, unknown>>) {
+          templateCardStatement.run(
+            randomUUID(),
+            templateId,
+            Number(card.position),
+            String(card.image_url),
+            String(card.sample_audio_url),
+            card.reference_text ? String(card.reference_text) : null,
+          );
+        }
+        for (const item of itemRowsStatement.all(row.id) as Array<Record<string, unknown>>) {
+          templateItemStatement.run(
+            randomUUID(),
+            templateId,
+            Number(item.position),
+            item.prompt_text ? String(item.prompt_text) : null,
+            item.image_url ? String(item.image_url) : null,
+            item.sample_audio_url ? String(item.sample_audio_url) : null,
+            item.answer_text ? String(item.answer_text) : null,
+            item.choices_json ? String(item.choices_json) : null,
+          );
+        }
+        updateHomeworkStatement.run(templateId, String(row.id));
+      }
+      this.database
+        .prepare("INSERT OR IGNORE INTO data_migrations (id, applied_at) VALUES (?, ?)")
+        .run("homework-templates-v1", new Date().toISOString());
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   private backfillPointEvents() {
@@ -1110,6 +1595,21 @@ export class AccountStore {
     };
   }
 
+  listClassroomStudentCandidates(): ClassroomStudentCandidate[] {
+    const rows = this.database
+      .prepare(`
+        SELECT id, phone, display_name FROM users
+        WHERE role = 'STUDENT' AND status = 'ACTIVE'
+        ORDER BY display_name ASC, phone ASC
+      `)
+      .all() as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      phone: String(row.phone),
+      displayName: String(row.display_name),
+    }));
+  }
+
   listAdminUsers(input: {
     page: number;
     pageSize: number;
@@ -1205,14 +1705,15 @@ export class AccountStore {
     status?: string;
     teacherIds?: string[];
     studentIds?: string[];
+    scope?: StaffScope;
   }): ClassroomSummary | null {
     const now = new Date().toISOString();
     this.database.exec("BEGIN IMMEDIATE");
     try {
       const existing = this.database
-        .prepare("SELECT id FROM classrooms WHERE id = ?")
-        .get(input.classroomId);
-      if (!existing) {
+        .prepare("SELECT id, status FROM classrooms WHERE id = ?")
+        .get(input.classroomId) as { id: string; status: string } | undefined;
+      if (!existing || (isTeacherScope(input.scope) && !this.canManageActiveClassroom(input.classroomId, input.scope))) {
         this.database.exec("COMMIT");
         return null;
       }
@@ -1384,8 +1885,279 @@ export class AccountStore {
     return this.findByPhone(input.phone)!;
   }
 
+  createHomeworkTemplate(input: {
+    creatorId: string;
+    title: string;
+    instructions?: string;
+    templateType?: string;
+    cards?: Array<{ imageUrl: string; sampleAudioUrl: string; referenceText?: string }>;
+    items?: HomeworkItemInput[];
+  }): HomeworkTemplateDetail {
+    const content = normalizeHomeworkContent({
+      templateType: input.templateType,
+      cards: input.cards,
+      items: input.items,
+    });
+    const now = new Date().toISOString();
+    const template: HomeworkTemplateRecord = {
+      id: randomUUID(),
+      creatorId: input.creatorId,
+      title: input.title.trim(),
+      instructions: input.instructions?.trim() || null,
+      templateType: content.templateType,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.insertHomeworkTemplate(template);
+      this.insertHomeworkTemplateContent(template.id, content);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return this.getHomeworkTemplateDetail(template.id)!;
+  }
+
+  listHomeworkTemplates(limit = 20, scope?: StaffScope, offset = 0, filters: HomeworkTemplateFilters = {}): HomeworkTemplateSummary[] {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkTemplateScope(clauses, values, scope, "template");
+    appendHomeworkTemplateFilters(clauses, values, filters, "template");
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.database
+      .prepare(`
+        SELECT
+          template.*,
+          creator.display_name AS creator_name,
+          CASE WHEN template.template_type = 'READ_ALOUD_PICTURE_BOOK'
+            THEN COUNT(DISTINCT card.id)
+            ELSE COUNT(DISTINCT item.id)
+          END AS question_count,
+          COUNT(DISTINCT homework.id) AS published_homework_count,
+          MAX(homework.published_at) AS last_published_at
+        FROM homework_templates template
+        INNER JOIN users creator ON creator.id = template.creator_id
+        LEFT JOIN homework_template_cards card ON card.template_id = template.id
+        LEFT JOIN homework_template_items item ON item.template_id = template.id
+        LEFT JOIN homeworks homework ON homework.template_id = template.id
+        ${where}
+        GROUP BY template.id
+        ORDER BY template.updated_at DESC, template.created_at DESC
+        LIMIT ? OFFSET ?
+      `)
+      .all(...values, limit, offset) as Array<Record<string, unknown>>;
+    return rows.map(mapHomeworkTemplateSummaryRow);
+  }
+
+  countHomeworkTemplates(scope?: StaffScope, filters: HomeworkTemplateFilters = {}): number {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkTemplateScope(clauses, values, scope, "template");
+    appendHomeworkTemplateFilters(clauses, values, filters, "template");
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const row = this.database
+      .prepare(`SELECT COUNT(*) AS count FROM homework_templates template ${where}`)
+      .get(...values) as { count: number };
+    return Number(row.count);
+  }
+
+  getHomeworkTemplateDetail(templateId: string, scope?: StaffScope): HomeworkTemplateDetail | null {
+    const clauses = ["template.id = ?"];
+    const values: SQLInputValue[] = [templateId];
+    appendStaffHomeworkTemplateScope(clauses, values, scope, "template");
+    const row = this.database
+      .prepare(`
+        SELECT
+          template.*,
+          creator.display_name AS creator_name,
+          CASE WHEN template.template_type = 'READ_ALOUD_PICTURE_BOOK'
+            THEN COUNT(DISTINCT card.id)
+            ELSE COUNT(DISTINCT item.id)
+          END AS question_count,
+          COUNT(DISTINCT homework.id) AS published_homework_count,
+          MAX(homework.published_at) AS last_published_at
+        FROM homework_templates template
+        INNER JOIN users creator ON creator.id = template.creator_id
+        LEFT JOIN homework_template_cards card ON card.template_id = template.id
+        LEFT JOIN homework_template_items item ON item.template_id = template.id
+        LEFT JOIN homeworks homework ON homework.template_id = template.id
+        WHERE ${clauses.join(" AND ")}
+        GROUP BY template.id
+        LIMIT 1
+      `)
+      .get(...values) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    const template = mapHomeworkTemplateSummaryRow(row);
+    const cards = this.listHomeworkTemplateCards(template.id);
+    const items = this.listHomeworkTemplateItems(template.id);
+    return {
+      template,
+      cards,
+      items,
+      questions: template.templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK
+        ? cards.map((card) => ({
+          sourceKind: "CARD" as const,
+          id: card.id,
+          position: card.position,
+          promptText: null,
+          referenceText: card.referenceText,
+          imageUrl: card.imageUrl,
+          sampleAudioUrl: card.sampleAudioUrl,
+          answerText: null,
+          choices: null,
+        }))
+        : items.map((item) => ({
+          sourceKind: "ITEM" as const,
+          id: item.id,
+          position: item.position,
+          promptText: item.promptText,
+          referenceText: null,
+          imageUrl: item.imageUrl,
+          sampleAudioUrl: item.sampleAudioUrl,
+          answerText: item.answerText,
+          choices: item.choices,
+        })),
+    };
+  }
+
+  deleteHomeworkTemplate(templateId: string, scope?: StaffScope): boolean {
+    const result = isTeacherScope(scope)
+      ? this.database
+        .prepare("DELETE FROM homework_templates WHERE id = ? AND creator_id = ?")
+        .run(templateId, scope.userId)
+      : this.database.prepare("DELETE FROM homework_templates WHERE id = ?").run(templateId);
+    return result.changes > 0;
+  }
+
+  private insertHomeworkTemplate(template: HomeworkTemplateRecord) {
+    this.database
+      .prepare(`
+        INSERT INTO homework_templates (
+          id, creator_id, title, instructions, template_type, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        template.id,
+        template.creatorId,
+        template.title,
+        template.instructions,
+        template.templateType,
+        template.createdAt,
+        template.updatedAt,
+      );
+  }
+
+  private insertHomeworkTemplateContent(templateId: string, content: NormalizedHomeworkContent) {
+    if (content.templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK) {
+      const cardStatement = this.database.prepare(`
+        INSERT INTO homework_template_cards (
+          id, template_id, position, image_url, sample_audio_url, reference_text
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      content.cards.forEach((card, index) => {
+        cardStatement.run(
+          randomUUID(),
+          templateId,
+          index + 1,
+          card.imageUrl,
+          card.sampleAudioUrl,
+          card.referenceText,
+        );
+      });
+    }
+
+    if (isGenericHomeworkTemplate(content.templateType)) {
+      const itemStatement = this.database.prepare(`
+        INSERT INTO homework_template_items (
+          id, template_id, position, prompt_text, image_url,
+          sample_audio_url, answer_text, choices_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      content.items.forEach((item, index) => {
+        itemStatement.run(
+          randomUUID(),
+          templateId,
+          index + 1,
+          item.promptText,
+          item.imageUrl,
+          item.sampleAudioUrl,
+          item.answerText,
+          item.choices ? JSON.stringify(item.choices) : null,
+        );
+      });
+    }
+  }
+
+  private insertHomeworkSnapshotContent(homeworkId: string, content: NormalizedHomeworkContent) {
+    if (content.templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK) {
+      const cardStatement = this.database.prepare(`
+        INSERT INTO homework_cards (
+          id, homework_id, position, image_url, sample_audio_url, reference_text
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      content.cards.forEach((card, index) => {
+        cardStatement.run(
+          randomUUID(),
+          homeworkId,
+          index + 1,
+          card.imageUrl,
+          card.sampleAudioUrl,
+          card.referenceText,
+        );
+      });
+    }
+
+    if (isGenericHomeworkTemplate(content.templateType)) {
+      const itemStatement = this.database.prepare(`
+        INSERT INTO homework_items (
+          id, homework_id, position, prompt_text, image_url,
+          sample_audio_url, answer_text, choices_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      content.items.forEach((item, index) => {
+        itemStatement.run(
+          randomUUID(),
+          homeworkId,
+          index + 1,
+          item.promptText,
+          item.imageUrl,
+          item.sampleAudioUrl,
+          item.answerText,
+          item.choices ? JSON.stringify(item.choices) : null,
+        );
+      });
+    }
+  }
+
+  private listHomeworkTemplateCards(templateId: string): HomeworkTemplateCardRecord[] {
+    return (this.database
+      .prepare(`
+        SELECT id, template_id, position, image_url, sample_audio_url, reference_text
+        FROM homework_template_cards
+        WHERE template_id = ?
+        ORDER BY position ASC
+      `)
+      .all(templateId) as Array<Record<string, unknown>>).map(mapHomeworkTemplateCardRow);
+  }
+
+  private listHomeworkTemplateItems(templateId: string): HomeworkTemplateItemRecord[] {
+    return (this.database
+      .prepare(`
+        SELECT id, template_id, position, prompt_text, image_url, sample_audio_url,
+          answer_text, choices_json
+        FROM homework_template_items
+        WHERE template_id = ?
+        ORDER BY position ASC
+      `)
+      .all(templateId) as Array<Record<string, unknown>>).map(mapHomeworkTemplateItemRow);
+  }
+
   createPublishedHomework(input: {
     publisherId: string;
+    templateId?: string;
     title: string;
     instructions?: string;
     studentIds: string[];
@@ -1398,33 +2170,23 @@ export class AccountStore {
   }): HomeworkRecord {
     const studentIds = [...new Set(input.studentIds)];
     if (studentIds.length === 0) throw new InvalidHomeworkStudentsError();
-    const templateType = input.templateType ?? HOMEWORK_TEMPLATE_TYPES.STANDARD;
-    const cards = (input.cards ?? []).map((card) => ({
-      imageUrl: optionalText(card.imageUrl),
-      sampleAudioUrl: optionalText(card.sampleAudioUrl),
-      referenceText: optionalText(card.referenceText),
-    }));
-    const items = validateHomeworkItems(templateType, input.items ?? []);
-    if (!(Object.values(HOMEWORK_TEMPLATE_TYPES) as string[]).includes(templateType)) {
-      throw new InvalidHomeworkItemsError();
-    }
-    if (
-      templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK &&
-      (cards.length === 0 || cards.some(
-        (card) => !card.imageUrl || !card.sampleAudioUrl || !card.referenceText,
-      ))
-    ) {
-      throw new InvalidPictureBookCardsError();
-    }
+    const inlineContent = input.templateId
+      ? null
+      : normalizeHomeworkContent({
+        templateType: input.templateType,
+        cards: input.cards,
+        items: input.items,
+      });
     const now = new Date().toISOString();
     const homework: HomeworkRecord = {
       id: randomUUID(),
+      templateId: null,
       publisherId: input.publisherId,
       classroomId: input.classroomId?.trim() || null,
-      title: input.title,
+      title: input.title.trim(),
       instructions: input.instructions?.trim() || null,
       status: "PUBLISHED",
-      templateType,
+      templateType: inlineContent?.templateType ?? HOMEWORK_TEMPLATE_TYPES.STANDARD,
       startsAt: new Date(input.schedule.startsAt).toISOString(),
       repeatUnit: input.schedule.unit,
       repeatInterval: input.schedule.interval,
@@ -1436,6 +2198,51 @@ export class AccountStore {
 
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      let content: NormalizedHomeworkContent;
+      if (input.templateId) {
+        const templateScope = input.staffRole
+          ? { userId: input.publisherId, role: input.staffRole }
+          : undefined;
+        const template = this.getHomeworkTemplateDetail(input.templateId, templateScope);
+        if (!template) throw new HomeworkTemplateAccessError();
+        if (template.template.templateType === HOMEWORK_TEMPLATE_TYPES.STANDARD) {
+          throw new InvalidHomeworkItemsError();
+        }
+        homework.templateId = template.template.id;
+        homework.title = template.template.title;
+        homework.instructions = template.template.instructions;
+        homework.templateType = template.template.templateType;
+        content = {
+          templateType: template.template.templateType,
+          cards: template.cards.map((card) => ({
+            imageUrl: card.imageUrl,
+            sampleAudioUrl: card.sampleAudioUrl,
+            referenceText: card.referenceText,
+          })),
+          items: template.items.map((item) => ({
+            promptText: item.promptText,
+            imageUrl: item.imageUrl,
+            sampleAudioUrl: item.sampleAudioUrl,
+            answerText: item.answerText,
+            choices: item.choices,
+          })),
+        };
+      } else {
+        content = inlineContent!;
+        const template: HomeworkTemplateRecord = {
+          id: randomUUID(),
+          creatorId: input.publisherId,
+          title: homework.title,
+          instructions: homework.instructions,
+          templateType: content.templateType,
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.insertHomeworkTemplate(template);
+        this.insertHomeworkTemplateContent(template.id, content);
+        homework.templateId = template.id;
+      }
+
       const studentPlaceholders = studentIds.map(() => "?").join(", ");
       const students = this.database
         .prepare(
@@ -1480,12 +2287,13 @@ export class AccountStore {
       this.database
         .prepare(`
           INSERT INTO homeworks (
-            id, publisher_id, classroom_id, title, instructions, status, template_type, starts_at, repeat_unit,
-            repeat_interval, occurrence_limit, published_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, template_id, publisher_id, classroom_id, title, instructions, status, template_type, starts_at,
+            repeat_unit, repeat_interval, occurrence_limit, published_at, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `)
         .run(
           homework.id,
+          homework.templateId,
           homework.publisherId,
           homework.classroomId,
           homework.title,
@@ -1501,44 +2309,7 @@ export class AccountStore {
           homework.updatedAt,
         );
 
-      if (templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK) {
-        const cardStatement = this.database.prepare(`
-          INSERT INTO homework_cards (
-            id, homework_id, position, image_url, sample_audio_url, reference_text
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        cards.forEach((card, index) => {
-          cardStatement.run(
-            randomUUID(),
-            homework.id,
-            index + 1,
-            card.imageUrl,
-            card.sampleAudioUrl,
-            card.referenceText,
-          );
-        });
-      }
-
-      if (isGenericHomeworkTemplate(templateType)) {
-        const itemStatement = this.database.prepare(`
-          INSERT INTO homework_items (
-            id, homework_id, position, prompt_text, image_url,
-            sample_audio_url, answer_text, choices_json
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        items.forEach((item, index) => {
-          itemStatement.run(
-            randomUUID(),
-            homework.id,
-            index + 1,
-            item.promptText,
-            item.imageUrl,
-            item.sampleAudioUrl,
-            item.answerText,
-            item.choices ? JSON.stringify(item.choices) : null,
-          );
-        });
-      }
+      this.insertHomeworkSnapshotContent(homework.id, content);
 
       const recipientStatement = this.database.prepare(`
         INSERT INTO homework_recipients (homework_id, student_id, created_at)
@@ -1577,10 +2348,11 @@ export class AccountStore {
     return Number(row.count);
   }
 
-  listPublishedHomeworks(limit = 20, scope?: StaffScope, offset = 0): HomeworkSummary[] {
+  listPublishedHomeworks(limit = 20, scope?: StaffScope, offset = 0, filters: PublishedHomeworkFilters = {}): HomeworkSummary[] {
     const clauses: string[] = [];
     const values: SQLInputValue[] = [];
     appendStaffHomeworkScope(clauses, values, scope, "h");
+    appendPublishedHomeworkFilters(clauses, values, filters, "h");
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.database
       .prepare(`
@@ -1590,8 +2362,8 @@ export class AccountStore {
           classroom.name AS classroom_name,
           classroom.status AS classroom_status,
           COUNT(DISTINCT recipient.student_id) AS target_count,
-          COUNT(occurrence.id) AS occurrence_count,
-          COUNT(CASE WHEN occurrence.status = 'COMPLETED' THEN 1 END) AS completed_occurrence_count
+          COUNT(DISTINCT occurrence.id) AS occurrence_count,
+          COUNT(DISTINCT CASE WHEN occurrence.status = 'COMPLETED' THEN occurrence.id END) AS completed_occurrence_count
         FROM homeworks h
         INNER JOIN users publisher ON publisher.id = h.publisher_id
         LEFT JOIN classrooms classroom ON classroom.id = h.classroom_id
@@ -1606,10 +2378,11 @@ export class AccountStore {
     return rows.map(mapHomeworkSummaryRow);
   }
 
-  countPublishedHomeworks(scope?: StaffScope): number {
+  countPublishedHomeworks(scope?: StaffScope, filters: PublishedHomeworkFilters = {}): number {
     const clauses: string[] = [];
     const values: SQLInputValue[] = [];
     appendStaffHomeworkScope(clauses, values, scope, "h");
+    appendPublishedHomeworkFilters(clauses, values, filters, "h");
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const row = this.database
       .prepare(`SELECT COUNT(*) AS count FROM homeworks h ${where}`)
@@ -1649,8 +2422,8 @@ export class AccountStore {
           classroom.name AS classroom_name,
           classroom.status AS classroom_status,
           COUNT(DISTINCT recipient.student_id) AS target_count,
-          COUNT(occurrence.id) AS occurrence_count,
-          COUNT(CASE WHEN occurrence.status = 'COMPLETED' THEN 1 END) AS completed_occurrence_count
+          COUNT(DISTINCT occurrence.id) AS occurrence_count,
+          COUNT(DISTINCT CASE WHEN occurrence.status = 'COMPLETED' THEN occurrence.id END) AS completed_occurrence_count
         FROM homeworks h
         INNER JOIN users publisher ON publisher.id = h.publisher_id
         LEFT JOIN classrooms classroom ON classroom.id = h.classroom_id
@@ -1662,6 +2435,140 @@ export class AccountStore {
       `)
       .get(...values) as Record<string, unknown> | undefined;
     return row ? mapHomeworkSummaryRow(row) : null;
+  }
+
+  getPublishedHomeworkDetail(homeworkId: string, scope?: StaffScope): PublishedHomeworkDetail | null {
+    const homework = this.getHomeworkSummary(homeworkId, scope);
+    if (!homework) return null;
+
+    const recipients = this.database
+      .prepare(`
+        SELECT student.id, student.display_name, student.phone
+        FROM homework_recipients recipient
+        INNER JOIN users student ON student.id = recipient.student_id
+        WHERE recipient.homework_id = ?
+        ORDER BY student.display_name ASC, student.id ASC
+      `)
+      .all(homeworkId)
+      .map((row) => {
+        const student = row as Record<string, unknown>;
+        return {
+          id: String(student.id),
+          displayName: String(student.display_name),
+          phone: String(student.phone),
+        };
+      });
+
+    const questions: PublishedHomeworkQuestion[] = homework.templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK
+      ? this.database
+        .prepare(`
+          SELECT id, position, image_url, sample_audio_url, reference_text
+          FROM homework_cards
+          WHERE homework_id = ?
+          ORDER BY position ASC
+        `)
+        .all(homeworkId)
+        .map((row) => {
+          const card = row as Record<string, unknown>;
+          return {
+            sourceKind: "CARD" as const,
+            id: String(card.id),
+            position: Number(card.position),
+            promptText: null,
+            referenceText: card.reference_text ? String(card.reference_text) : null,
+            imageUrl: String(card.image_url),
+            sampleAudioUrl: String(card.sample_audio_url),
+            answerText: null,
+            choices: null,
+          };
+        })
+      : this.database
+        .prepare(`
+          SELECT id, position, prompt_text, image_url, sample_audio_url,
+            answer_text, choices_json
+          FROM homework_items
+          WHERE homework_id = ?
+          ORDER BY position ASC
+        `)
+        .all(homeworkId)
+        .map((row) => {
+          const item = row as Record<string, unknown>;
+          return {
+            sourceKind: "ITEM" as const,
+            id: String(item.id),
+            position: Number(item.position),
+            promptText: item.prompt_text ? String(item.prompt_text) : null,
+            referenceText: null,
+            imageUrl: item.image_url ? String(item.image_url) : null,
+            sampleAudioUrl: item.sample_audio_url ? String(item.sample_audio_url) : null,
+            answerText: item.answer_text ? String(item.answer_text) : null,
+            choices: parseChoices(item.choices_json),
+          };
+        });
+
+    return { homework, recipients, questions };
+  }
+
+  getLatestHomeworkCycle(
+    homeworkId: string,
+    scope?: StaffScope,
+    currentTime = new Date(),
+  ): LatestHomeworkCycleResult | null {
+    const homework = this.getHomeworkSummary(homeworkId, scope);
+    if (!homework) return null;
+
+    const latestCycle = this.database
+      .prepare(`
+        SELECT sequence_number, scheduled_at
+        FROM homework_occurrences
+        WHERE homework_id = ? AND scheduled_at <= ?
+        ORDER BY scheduled_at DESC, sequence_number DESC
+        LIMIT 1
+      `)
+      .get(homeworkId, currentTime.toISOString()) as
+      | { sequence_number: number; scheduled_at: string }
+      | undefined;
+    if (!latestCycle) return { homework, cycle: null };
+
+    const rows = this.database
+      .prepare(`
+        ${STAFF_HOMEWORK_SUBMISSION_CTES}
+        SELECT occurrence.id AS occurrence_id, occurrence.status AS occurrence_status,
+          student.id AS student_id, student.display_name AS student_name,
+          COALESCE(progress.submitted_count, 0) AS submitted_count,
+          progress.latest_submitted_at,
+          CASE WHEN homework.template_type = 'READ_ALOUD_PICTURE_BOOK'
+            THEN (SELECT COUNT(*) FROM homework_cards card WHERE card.homework_id = homework.id)
+            ELSE (SELECT COUNT(*) FROM homework_items item WHERE item.homework_id = homework.id)
+          END AS total_count
+        FROM homework_occurrences occurrence
+        INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+        INNER JOIN users student ON student.id = occurrence.student_id
+        LEFT JOIN submission_progress progress ON progress.occurrence_id = occurrence.id
+        WHERE occurrence.homework_id = ? AND occurrence.sequence_number = ?
+        ORDER BY
+          CASE
+            WHEN occurrence.status = 'COMPLETED' THEN 2
+            WHEN COALESCE(progress.submitted_count, 0) > 0 THEN 1
+            ELSE 0
+          END ASC,
+          student.display_name ASC,
+          student.id ASC
+      `)
+      .all(homeworkId, Number(latestCycle.sequence_number)) as Array<Record<string, unknown>>;
+    const students = rows.map(mapHomeworkCycleStudent);
+    return {
+      homework,
+      cycle: {
+        sequenceNumber: Number(latestCycle.sequence_number),
+        scheduledAt: String(latestCycle.scheduled_at),
+        studentCount: students.length,
+        checkedInCount: students.filter((student) => student.status === "CHECKED_IN").length,
+        inProgressCount: students.filter((student) => student.status === "IN_PROGRESS").length,
+        notStartedCount: students.filter((student) => student.status === "NOT_STARTED").length,
+        students,
+      },
+    };
   }
 
   private getScopedHomework(homeworkId: string, scope?: StaffScope): HomeworkRecord | null {
@@ -1939,6 +2846,267 @@ export class AccountStore {
     return this.getStudentReadingOccurrence(input.occurrenceId, input.studentId);
   }
 
+  listHomeworkSubmissionGroups(input: StaffHomeworkSubmissionListInput): StaffHomeworkSubmissionGroup[] {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkScope(clauses, values, input.scope, "homework");
+    appendStaffHomeworkSubmissionFilters(clauses, values, { ...input, reviewMode: undefined });
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const having = input.reviewMode === "PENDING"
+      ? "HAVING SUM(CASE WHEN progress.reviewed_count < progress.submitted_count THEN 1 ELSE 0 END) > 0"
+      : "";
+    const offset = (input.page - 1) * input.pageSize;
+    const rows = this.database
+      .prepare(`
+        ${STAFF_HOMEWORK_SUBMISSION_CTES}
+        SELECT
+          homework.id AS homework_id,
+          homework.title,
+          homework.template_type,
+          homework.status,
+          homework.published_at,
+          classroom.id AS classroom_id,
+          classroom.name AS classroom_name,
+          (SELECT COUNT(*) FROM homework_recipients recipient WHERE recipient.homework_id = homework.id) AS assigned_student_count,
+          COUNT(DISTINCT occurrence.id) AS submitted_occurrence_count,
+          SUM(CASE WHEN progress.reviewed_count < progress.submitted_count THEN 1 ELSE 0 END) AS pending_review_count,
+          SUM(CASE WHEN progress.reviewed_count >= progress.submitted_count THEN 1 ELSE 0 END) AS reviewed_occurrence_count,
+          SUM(progress.submitted_count) AS submitted_question_count,
+          SUM(progress.reviewed_count) AS reviewed_question_count,
+          MAX(progress.latest_submitted_at) AS latest_submitted_at
+        FROM submission_progress progress
+        INNER JOIN homework_occurrences occurrence ON occurrence.id = progress.occurrence_id
+        INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+        INNER JOIN users student ON student.id = occurrence.student_id
+        LEFT JOIN classrooms classroom ON classroom.id = homework.classroom_id
+        ${where}
+        GROUP BY homework.id
+        ${having}
+        ORDER BY latest_submitted_at DESC, homework.id ASC
+        LIMIT ? OFFSET ?
+      `)
+      .all(...values, input.pageSize, offset) as Array<Record<string, unknown>>;
+    return rows.map(mapStaffHomeworkSubmissionGroup);
+  }
+
+  countHomeworkSubmissionGroups(
+    filters: StaffHomeworkSubmissionFilters,
+    scope?: StaffScope,
+  ): number {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkScope(clauses, values, scope, "homework");
+    appendStaffHomeworkSubmissionFilters(clauses, values, { ...filters, reviewMode: undefined });
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const having = filters.reviewMode === "PENDING"
+      ? "HAVING SUM(CASE WHEN progress.reviewed_count < progress.submitted_count THEN 1 ELSE 0 END) > 0"
+      : "";
+    const row = this.database
+      .prepare(`
+        ${STAFF_HOMEWORK_SUBMISSION_CTES}
+        SELECT COUNT(*) AS count
+        FROM (
+          SELECT homework.id
+          FROM submission_progress progress
+          INNER JOIN homework_occurrences occurrence ON occurrence.id = progress.occurrence_id
+          INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+          INNER JOIN users student ON student.id = occurrence.student_id
+          ${where}
+          GROUP BY homework.id
+          ${having}
+        ) grouped
+      `)
+      .get(...values) as { count: number };
+    return Number(row.count);
+  }
+
+  listHomeworkSubmissionConversations(input: StaffHomeworkSubmissionListInput) {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkScope(clauses, values, input.scope, "homework");
+    appendStaffHomeworkSubmissionFilters(clauses, values, input);
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const offset = (input.page - 1) * input.pageSize;
+    const rows = this.database
+      .prepare(`
+        ${STAFF_HOMEWORK_SUBMISSION_CTES}
+        SELECT occurrence.id AS occurrence_id, occurrence.status AS occurrence_status,
+          occurrence.scheduled_at, student.id AS student_id,
+          student.display_name AS student_name, homework.id AS homework_id,
+          homework.title AS homework_title, homework.instructions,
+          homework.template_type, homework.status AS homework_status,
+          classroom.id AS classroom_id, classroom.name AS classroom_name,
+          progress.latest_submitted_at, progress.submitted_count, progress.reviewed_count,
+          CASE WHEN homework.template_type = 'READ_ALOUD_PICTURE_BOOK'
+            THEN (SELECT COUNT(*) FROM homework_cards card WHERE card.homework_id = homework.id)
+            ELSE (SELECT COUNT(*) FROM homework_items item WHERE item.homework_id = homework.id)
+          END AS total_count
+        FROM submission_progress progress
+        INNER JOIN homework_occurrences occurrence ON occurrence.id = progress.occurrence_id
+        INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+        INNER JOIN users student ON student.id = occurrence.student_id
+        LEFT JOIN classrooms classroom ON classroom.id = homework.classroom_id
+        ${where}
+        ORDER BY progress.latest_submitted_at DESC, occurrence.id ASC
+        LIMIT ? OFFSET ?
+      `)
+      .all(...values, input.pageSize, offset) as Array<Record<string, unknown>>;
+    return rows.map(mapStaffHomeworkSubmissionConversation);
+  }
+
+  countHomeworkSubmissionConversations(
+    filters: StaffHomeworkSubmissionFilters,
+    scope?: StaffScope,
+  ): number {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkScope(clauses, values, scope, "homework");
+    appendStaffHomeworkSubmissionFilters(clauses, values, filters);
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const row = this.database
+      .prepare(`
+        ${STAFF_HOMEWORK_SUBMISSION_CTES}
+        SELECT COUNT(*) AS count
+        FROM submission_progress progress
+        INNER JOIN homework_occurrences occurrence ON occurrence.id = progress.occurrence_id
+        INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+        INNER JOIN users student ON student.id = occurrence.student_id
+        ${where}
+      `)
+      .get(...values) as { count: number };
+    return Number(row.count);
+  }
+
+  listHomeworkSubmissionFilterOptions(scope?: StaffScope) {
+    const clauses: string[] = [];
+    const values: SQLInputValue[] = [];
+    appendStaffHomeworkScope(clauses, values, scope, "homework");
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.database
+      .prepare(`
+        ${STAFF_HOMEWORK_SUBMISSION_CTES}
+        SELECT occurrence.student_id, student.display_name AS student_name,
+          homework.id AS homework_id, homework.title AS homework_title
+        FROM submission_progress progress
+        INNER JOIN homework_occurrences occurrence ON occurrence.id = progress.occurrence_id
+        INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+        INNER JOIN users student ON student.id = occurrence.student_id
+        ${where}
+        ORDER BY student.display_name ASC, homework.title ASC
+      `)
+      .all(...values) as Array<Record<string, unknown>>;
+    const students = new Map<string, string>();
+    const homeworks = new Map<string, string>();
+    for (const row of rows) {
+      students.set(String(row.student_id), String(row.student_name));
+      homeworks.set(String(row.homework_id), String(row.homework_title));
+    }
+    return {
+      students: Array.from(students, ([id, displayName]) => ({ id, displayName })),
+      homeworks: Array.from(homeworks, ([id, title]) => ({ id, title })),
+    };
+  }
+
+  getHomeworkSubmissionConversation(occurrenceId: string, scope?: StaffScope) {
+    const clauses = ["occurrence.id = ?"];
+    const values: SQLInputValue[] = [occurrenceId];
+    appendStaffHomeworkScope(clauses, values, scope, "homework");
+    const occurrence = this.database
+      .prepare(`
+        SELECT occurrence.id AS occurrence_id, occurrence.status AS occurrence_status,
+          occurrence.scheduled_at, student.id AS student_id,
+          student.display_name AS student_name, homework.id AS homework_id,
+          homework.title AS homework_title, homework.instructions,
+          homework.template_type, homework.status AS homework_status,
+          classroom.id AS classroom_id, classroom.name AS classroom_name
+        FROM homework_occurrences occurrence
+        INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
+        INNER JOIN users student ON student.id = occurrence.student_id
+        LEFT JOIN classrooms classroom ON classroom.id = homework.classroom_id
+        WHERE ${clauses.join(" AND ")}
+      `)
+      .get(...values) as Record<string, unknown> | undefined;
+    if (!occurrence) throw new HomeworkAccessError();
+
+    const templateType = String(occurrence.template_type);
+    const questions = templateType === HOMEWORK_TEMPLATE_TYPES.READ_ALOUD_PICTURE_BOOK
+      ? this.database.prepare(`
+          SELECT card.id AS question_id, card.position, card.reference_text,
+            card.image_url, card.sample_audio_url,
+            submission.id AS submission_id, submission.audio_url,
+            submission.attempt_number, submission.submitted_at,
+            submission.feedback_audio_url, submission.grade, submission.reviewed_at,
+            assessment.id AS assessment_id,
+            assessment.status AS assessment_status,
+            assessment.provider AS assessment_provider,
+            assessment.overall_score AS assessment_overall_score,
+            assessment.accuracy_score AS assessment_accuracy_score,
+            assessment.fluency_score AS assessment_fluency_score,
+            assessment.completeness_score AS assessment_completeness_score,
+            assessment.prosody_score AS assessment_prosody_score,
+            assessment.word_results_json AS assessment_word_results_json,
+            assessment.completed_at AS assessment_completed_at
+          FROM homework_cards card
+          LEFT JOIN homework_card_submissions submission ON submission.id = (
+            SELECT latest.id FROM homework_card_submissions latest
+            WHERE latest.occurrence_id = ? AND latest.card_id = card.id
+              AND latest.student_id = ?
+            ORDER BY latest.attempt_number DESC LIMIT 1
+          )
+          LEFT JOIN speech_assessments assessment ON assessment.submission_id = submission.id
+          WHERE card.homework_id = ?
+          ORDER BY card.position ASC
+        `).all(occurrenceId, String(occurrence.student_id), String(occurrence.homework_id))
+          .map((row) => mapStaffHomeworkSubmissionQuestion(row as Record<string, unknown>, "CARD"))
+      : this.database.prepare(`
+          SELECT item.id AS question_id, item.position, item.prompt_text,
+            item.image_url, item.sample_audio_url, item.answer_text, item.choices_json,
+            submission.id AS submission_id, submission.submission_type,
+            submission.audio_url, submission.answer_text AS submitted_answer_text,
+            submission.is_correct, submission.attempt_number, submission.submitted_at,
+            submission.feedback_audio_url, submission.grade, submission.reviewed_at,
+            assessment.id AS assessment_id,
+            assessment.status AS assessment_status,
+            assessment.provider AS assessment_provider,
+            assessment.overall_score AS assessment_overall_score,
+            assessment.accuracy_score AS assessment_accuracy_score,
+            assessment.fluency_score AS assessment_fluency_score,
+            assessment.completeness_score AS assessment_completeness_score,
+            assessment.prosody_score AS assessment_prosody_score,
+            assessment.word_results_json AS assessment_word_results_json,
+            assessment.completed_at AS assessment_completed_at
+          FROM homework_items item
+          LEFT JOIN homework_item_submissions submission ON submission.id = (
+            SELECT latest.id FROM homework_item_submissions latest
+            WHERE latest.occurrence_id = ? AND latest.item_id = item.id
+              AND latest.student_id = ?
+            ORDER BY latest.attempt_number DESC LIMIT 1
+          )
+          LEFT JOIN speech_assessments assessment ON assessment.submission_id = submission.id
+          WHERE item.homework_id = ?
+          ORDER BY item.position ASC
+        `).all(occurrenceId, String(occurrence.student_id), String(occurrence.homework_id))
+          .map((row) => mapStaffHomeworkSubmissionQuestion(row as Record<string, unknown>, "ITEM"));
+
+    const submittedQuestions = questions.filter((question) => question.submissionId);
+    if (submittedQuestions.length === 0) throw new HomeworkAccessError();
+    const reviewedCount = submittedQuestions.filter((question) => question.reviewedAt || question.grade).length;
+    const latestSubmittedAt = submittedQuestions.reduce(
+      (latest, question) => !latest || (question.submittedAt && question.submittedAt > latest) ? question.submittedAt : latest,
+      null as string | null,
+    );
+    return {
+      ...mapStaffHomeworkSubmissionConversation({
+        ...occurrence,
+        latest_submitted_at: latestSubmittedAt,
+        submitted_count: submittedQuestions.length,
+        reviewed_count: reviewedCount,
+        total_count: questions.length,
+      }),
+      questions,
+    };
+  }
+
   listReadAloudSubmissions(limit = 100, scope?: StaffScope) {
     const clauses: string[] = [];
     const values: SQLInputValue[] = [];
@@ -1997,7 +3165,8 @@ export class AccountStore {
 
   reviewReadingSubmission(input: {
     submissionId: string;
-    grade: "A" | "B" | "C" | "D";
+    occurrenceId?: string;
+    grade: ReviewGrade;
     feedbackAudioUrl?: string;
     scope?: StaffScope;
   }) {
@@ -2016,7 +3185,7 @@ export class AccountStore {
           SET grade = ?,
             feedback_audio_url = CASE WHEN ? = 1 THEN ? ELSE feedback_audio_url END,
             reviewed_at = ?
-          WHERE id = ? AND (
+          WHERE id = ? AND (? IS NULL OR occurrence_id = ?) AND (
             ? = 'ADMIN' OR EXISTS (
               SELECT 1 FROM homework_occurrences occurrence
               INNER JOIN homeworks homework ON homework.id = occurrence.homework_id
@@ -2043,6 +3212,8 @@ export class AccountStore {
           input.feedbackAudioUrl ?? null,
           reviewedAt,
           input.submissionId,
+          input.occurrenceId ?? null,
+          input.occurrenceId ?? null,
           input.scope?.role ?? "ADMIN",
           input.scope?.userId ?? "",
           input.scope?.userId ?? "",
@@ -2080,8 +3251,7 @@ export class AccountStore {
               AND submission.is_correct = 1 THEN item.id
           END) AS completed_item_count,
           COUNT(DISTINCT CASE
-            WHEN h.template_type IN ('SENTENCE_READ_ALOUD', 'WORD_READ_ALOUD')
-              AND (submission.reviewed_at IS NOT NULL OR submission.grade IS NOT NULL)
+            WHEN (submission.reviewed_at IS NOT NULL OR submission.grade IS NOT NULL)
               AND NOT EXISTS (
                 SELECT 1 FROM homework_item_submissions newer
                 WHERE newer.occurrence_id = submission.occurrence_id
@@ -2244,7 +3414,7 @@ export class AccountStore {
         assessment: mapSpeechAssessment(row),
         status: isRecordingHomeworkTemplate(templateType)
           ? (!hasSubmission ? "UNMADE" : row.reviewed_at || row.grade ? "GRADED" : "DONE")
-          : (!hasSubmission ? "UNMADE" : hasCorrectSubmission ? "CORRECT" : "INCORRECT"),
+          : (!hasSubmission ? "UNMADE" : row.reviewed_at || row.grade ? "GRADED" : hasCorrectSubmission ? "CORRECT" : "INCORRECT"),
       };
     });
     return {
@@ -2643,7 +3813,8 @@ export class AccountStore {
 
   reviewPracticeRecordingSubmission(input: {
     submissionId: string;
-    grade: "A" | "B" | "C" | "D";
+    occurrenceId?: string;
+    grade: ReviewGrade;
     feedbackAudioUrl?: string;
     scope?: StaffScope;
   }) {
@@ -2662,7 +3833,7 @@ export class AccountStore {
           SET grade = ?,
             feedback_audio_url = CASE WHEN ? = 1 THEN ? ELSE feedback_audio_url END,
             reviewed_at = ?
-          WHERE id = ? AND submission_type = 'RECORDING' AND (
+          WHERE id = ? AND (? IS NULL OR occurrence_id = ?) AND (
             ? = 'ADMIN' OR EXISTS (
               SELECT 1 FROM homework_occurrences occurrence
               INNER JOIN homework_items item ON item.id = homework_item_submissions.item_id
@@ -2690,6 +3861,8 @@ export class AccountStore {
           input.feedbackAudioUrl ?? null,
           reviewedAt,
           input.submissionId,
+          input.occurrenceId ?? null,
+          input.occurrenceId ?? null,
           input.scope?.role ?? "ADMIN",
           input.scope?.userId ?? "",
           input.scope?.userId ?? "",
@@ -3390,20 +4563,18 @@ export class AccountStore {
     const completed = this.database
       .prepare(completedSql)
       .get(occurrenceId, studentId) as { count: number };
-    const reviewed = isRecordingHomeworkTemplate(templateType)
-      ? this.database
-        .prepare(`
-          SELECT COUNT(*) AS count FROM homework_items item
-          INNER JOIN homework_item_submissions latest ON latest.id = (
-            SELECT submission.id FROM homework_item_submissions submission
-            WHERE submission.occurrence_id = ? AND submission.item_id = item.id
-              AND submission.student_id = ? AND submission.submission_type = 'RECORDING'
-            ORDER BY submission.attempt_number DESC LIMIT 1
-          )
-          WHERE item.homework_id = ? AND (latest.reviewed_at IS NOT NULL OR latest.grade IS NOT NULL)
-        `)
-        .get(occurrenceId, studentId, homeworkId) as { count: number }
-      : { count: 0 };
+    const reviewed = this.database
+      .prepare(`
+        SELECT COUNT(*) AS count FROM homework_items item
+        INNER JOIN homework_item_submissions latest ON latest.id = (
+          SELECT submission.id FROM homework_item_submissions submission
+          WHERE submission.occurrence_id = ? AND submission.item_id = item.id
+            AND submission.student_id = ?
+          ORDER BY submission.attempt_number DESC LIMIT 1
+        )
+        WHERE item.homework_id = ? AND (latest.reviewed_at IS NOT NULL OR latest.grade IS NOT NULL)
+      `)
+      .get(occurrenceId, studentId, homeworkId) as { count: number };
     return {
       completedCount: Number(completed.count),
       totalCount: Number(total.count),
@@ -3507,6 +4678,9 @@ export class AccountStore {
       DELETE FROM homework_cards;
       DELETE FROM homework_recipients;
       DELETE FROM homeworks;
+      DELETE FROM homework_template_items;
+      DELETE FROM homework_template_cards;
+      DELETE FROM homework_templates;
       DELETE FROM classroom_teachers;
       DELETE FROM classroom_students;
       DELETE FROM classrooms;
@@ -3585,6 +4759,7 @@ function mapClassroomMember(user: UserRecord): ClassroomMember {
 function mapHomeworkRow(row: Record<string, unknown>): HomeworkRecord {
   return {
     id: String(row.id),
+    templateId: row.template_id ? String(row.template_id) : null,
     publisherId: String(row.publisher_id),
     classroomId: row.classroom_id ? String(row.classroom_id) : null,
     title: String(row.title),
@@ -3601,6 +4776,52 @@ function mapHomeworkRow(row: Record<string, unknown>): HomeworkRecord {
   };
 }
 
+function mapHomeworkTemplateRow(row: Record<string, unknown>): HomeworkTemplateRecord {
+  return {
+    id: String(row.id),
+    creatorId: String(row.creator_id),
+    title: String(row.title),
+    instructions: row.instructions ? String(row.instructions) : null,
+    templateType: String(row.template_type),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function mapHomeworkTemplateSummaryRow(row: Record<string, unknown>): HomeworkTemplateSummary {
+  return {
+    ...mapHomeworkTemplateRow(row),
+    creatorName: String(row.creator_name),
+    questionCount: Number(row.question_count),
+    publishedHomeworkCount: Number(row.published_homework_count),
+    lastPublishedAt: row.last_published_at ? String(row.last_published_at) : null,
+  };
+}
+
+function mapHomeworkTemplateCardRow(row: Record<string, unknown>): HomeworkTemplateCardRecord {
+  return {
+    id: String(row.id),
+    templateId: String(row.template_id),
+    position: Number(row.position),
+    imageUrl: String(row.image_url),
+    sampleAudioUrl: String(row.sample_audio_url),
+    referenceText: row.reference_text ? String(row.reference_text) : null,
+  };
+}
+
+function mapHomeworkTemplateItemRow(row: Record<string, unknown>): HomeworkTemplateItemRecord {
+  return {
+    id: String(row.id),
+    templateId: String(row.template_id),
+    position: Number(row.position),
+    promptText: row.prompt_text ? String(row.prompt_text) : null,
+    imageUrl: row.image_url ? String(row.image_url) : null,
+    sampleAudioUrl: row.sample_audio_url ? String(row.sample_audio_url) : null,
+    answerText: row.answer_text ? String(row.answer_text) : null,
+    choices: parseChoices(row.choices_json),
+  };
+}
+
 function mapHomeworkSummaryRow(row: Record<string, unknown>): HomeworkSummary {
   return {
     ...mapHomeworkRow(row),
@@ -3610,6 +4831,110 @@ function mapHomeworkSummaryRow(row: Record<string, unknown>): HomeworkSummary {
     targetCount: Number(row.target_count),
     occurrenceCount: Number(row.occurrence_count),
     completedOccurrenceCount: Number(row.completed_occurrence_count),
+  };
+}
+
+function mapHomeworkCycleStudent(row: Record<string, unknown>): HomeworkCycleStudent {
+  const submittedCount = Number(row.submitted_count);
+  const occurrenceStatus = String(row.occurrence_status);
+  const status: HomeworkCycleStudentStatus = occurrenceStatus === "COMPLETED"
+    ? "CHECKED_IN"
+    : submittedCount > 0
+      ? "IN_PROGRESS"
+      : "NOT_STARTED";
+  return {
+    occurrenceId: String(row.occurrence_id),
+    studentId: String(row.student_id),
+    studentName: String(row.student_name),
+    occurrenceStatus,
+    status,
+    submittedCount,
+    totalCount: Number(row.total_count),
+    lastSubmittedAt: row.latest_submitted_at ? String(row.latest_submitted_at) : null,
+  };
+}
+
+function mapStaffHomeworkSubmissionGroup(row: Record<string, unknown>): StaffHomeworkSubmissionGroup {
+  return {
+    homeworkId: String(row.homework_id),
+    title: String(row.title),
+    classroomId: row.classroom_id ? String(row.classroom_id) : null,
+    classroomName: row.classroom_name ? String(row.classroom_name) : null,
+    templateType: String(row.template_type),
+    status: String(row.status),
+    publishedAt: String(row.published_at),
+    assignedStudentCount: Number(row.assigned_student_count),
+    submittedOccurrenceCount: Number(row.submitted_occurrence_count),
+    pendingReviewCount: Number(row.pending_review_count),
+    reviewedOccurrenceCount: Number(row.reviewed_occurrence_count),
+    submittedQuestionCount: Number(row.submitted_question_count),
+    reviewedQuestionCount: Number(row.reviewed_question_count),
+    latestSubmittedAt: String(row.latest_submitted_at),
+  };
+}
+
+function mapStaffHomeworkSubmissionConversation(row: Record<string, unknown>) {
+  const submittedCount = Number(row.submitted_count);
+  const reviewedCount = Number(row.reviewed_count);
+  const totalCount = Number(row.total_count);
+  const reviewStatus = submittedCount < totalCount
+    ? "IN_PROGRESS"
+    : reviewedCount < submittedCount
+      ? "PENDING_REVIEW"
+      : "REVIEWED";
+  return {
+    occurrenceId: String(row.occurrence_id),
+    occurrenceStatus: String(row.occurrence_status),
+    scheduledAt: String(row.scheduled_at),
+    studentId: String(row.student_id),
+    studentName: String(row.student_name),
+    homeworkId: String(row.homework_id),
+    homeworkTitle: String(row.homework_title),
+    instructions: row.instructions ? String(row.instructions) : null,
+    templateType: String(row.template_type),
+    homeworkStatus: String(row.homework_status),
+    classroomId: row.classroom_id ? String(row.classroom_id) : null,
+    classroomName: row.classroom_name ? String(row.classroom_name) : null,
+    latestSubmittedAt: String(row.latest_submitted_at),
+    submittedCount,
+    reviewedCount,
+    totalCount,
+    reviewStatus,
+  };
+}
+
+function mapStaffHomeworkSubmissionQuestion(
+  row: Record<string, unknown>,
+  sourceKind: "CARD" | "ITEM",
+) {
+  const hasSubmission = Boolean(row.submission_id);
+  const reviewed = Boolean(row.reviewed_at || row.grade);
+  return {
+    sourceKind,
+    questionId: String(row.question_id),
+    submissionId: hasSubmission ? String(row.submission_id) : null,
+    position: Number(row.position),
+    promptText: row.prompt_text ? String(row.prompt_text) : null,
+    referenceText: row.reference_text ? String(row.reference_text) : null,
+    imageUrl: row.image_url ? String(row.image_url) : null,
+    sampleAudioUrl: row.sample_audio_url ? String(row.sample_audio_url) : null,
+    answerText: row.answer_text ? String(row.answer_text) : null,
+    choices: parseChoices(row.choices_json),
+    submissionType: sourceKind === "CARD"
+      ? "RECORDING"
+      : row.submission_type ? String(row.submission_type) : null,
+    audioUrl: row.audio_url ? String(row.audio_url) : null,
+    submittedAnswerText: row.submitted_answer_text ? String(row.submitted_answer_text) : null,
+    isCorrect: row.is_correct === null || row.is_correct === undefined
+      ? null
+      : Boolean(row.is_correct),
+    attemptNumber: row.attempt_number ? Number(row.attempt_number) : null,
+    submittedAt: row.submitted_at ? String(row.submitted_at) : null,
+    feedbackAudioUrl: row.feedback_audio_url ? String(row.feedback_audio_url) : null,
+    grade: row.grade ? String(row.grade) : null,
+    reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
+    assessment: mapSpeechAssessment(row),
+    reviewStatus: !hasSubmission ? "UNSUBMITTED" : reviewed ? "REVIEWED" : "PENDING_REVIEW",
   };
 }
 

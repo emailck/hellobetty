@@ -26,5 +26,7 @@
 - `learning-stats.md`: check-in, voice-duration, and homework-duration measurement contract.
 - `operations-milestone.md`: classroom authorization, account operations, homework lifecycle, and speech-assessment operations plan.
 - `product-scope.md`: current and planned product scope.
+- `published-homework-reuse.md`: implementation contract and tracked plan for staff history preview and later reuse across classrooms or students.
 - `speech-assessment.md`: provider-neutral asynchronous speech-assessment architecture and delivery status.
 - `student-engagement.md`: teacher-configured classroom rewards, student points, editable profile, homework history, and learning visualization milestone.
+- `teacher-workspace-navigation.md`: tracked contract for menu navigation, pending/history review modes, student search, and teacher classroom membership management.

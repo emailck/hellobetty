@@ -63,7 +63,7 @@ function publishSentenceHomework(teacherId: string, studentId: string) {
     title: "Read a sentence",
     studentIds: [studentId],
     templateType: "SENTENCE_READ_ALOUD",
-    items: [{ promptText: "I see a cat.", sampleAudioUrl: "/uploads/cat.mp3" }],
+    items: [{ promptText: "I see a cat.", sampleAudioUrl: "/uploads/assets/cat.mp3" }],
     schedule: {
       startsAt: new Date(Date.now() - 60_000).toISOString(),
       unit: "DAY",
@@ -352,8 +352,8 @@ describe("asynchronous speech assessment", () => {
       studentIds: [student.id],
       templateType: "WORD_READ_ALOUD",
       items: [{
-        imageUrl: "/uploads/apple.png",
-        sampleAudioUrl: "/uploads/apple.mp3",
+        imageUrl: "/uploads/assets/apple.png",
+        sampleAudioUrl: "/uploads/assets/apple.mp3",
         answerText: "apple",
       }],
       schedule: {
@@ -398,8 +398,8 @@ describe("asynchronous speech assessment", () => {
       studentIds: [student.id],
       templateType: "READ_ALOUD_PICTURE_BOOK",
       cards: [{
-        imageUrl: "/uploads/page.png",
-        sampleAudioUrl: "/uploads/page.mp3",
+        imageUrl: "/uploads/assets/page.png",
+        sampleAudioUrl: "/uploads/assets/page.mp3",
         referenceText: "The red ball is big.",
       }],
       schedule: {
@@ -458,7 +458,7 @@ describe("asynchronous speech assessment", () => {
         title: "Picture book",
         studentIds: [student.id],
         templateType: "READ_ALOUD_PICTURE_BOOK",
-        cards: [{ imageUrl: "/uploads/page.png", sampleAudioUrl: "/uploads/page.mp3" }],
+        cards: [{ imageUrl: "/uploads/assets/page.png", sampleAudioUrl: "/uploads/assets/page.mp3" }],
         schedule: {
           startsAt: new Date(Date.now() - 60_000).toISOString(),
           unit: "DAY",

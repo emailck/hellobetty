@@ -1,4 +1,6 @@
 import type { CurrentUser, Session } from "../types";
+import { fetch as expoFetch } from "expo/fetch";
+import { File } from "expo-file-system";
 import { Platform } from "react-native";
 
 const localApiBaseUrl =
@@ -116,7 +118,7 @@ export interface TeacherReadingSubmission {
   templateType?: HomeworkTemplateType;
   audioUrl: string;
   feedbackAudioUrl: string | null;
-  grade: "A" | "B" | "C" | "D" | null;
+  grade: string | null;
   assessment: SpeechAssessment | null;
   status: "DONE" | "GRADED";
 }
@@ -135,11 +137,94 @@ export interface TeacherPracticeRecordingSubmission {
   templateType: "SENTENCE_READ_ALOUD" | "WORD_READ_ALOUD";
   audioUrl: string;
   feedbackAudioUrl: string | null;
-  grade: "A" | "B" | "C" | "D" | null;
+  grade: string | null;
   submittedAt: string;
   reviewedAt: string | null;
   assessment: SpeechAssessment | null;
   status: "DONE" | "GRADED";
+}
+
+export type StaffReviewGrade = "SSS" | "SS" | "S" | "A" | "B";
+
+export interface StaffHomeworkSubmissionConversation {
+  occurrenceId: string;
+  occurrenceStatus: string;
+  scheduledAt: string;
+  studentId: string;
+  studentName: string;
+  homeworkId: string;
+  homeworkTitle: string;
+  instructions: string | null;
+  templateType: HomeworkTemplateType;
+  homeworkStatus: string;
+  classroomId: string | null;
+  classroomName: string | null;
+  latestSubmittedAt: string;
+  submittedCount: number;
+  reviewedCount: number;
+  totalCount: number;
+  reviewStatus: "IN_PROGRESS" | "PENDING_REVIEW" | "REVIEWED";
+}
+
+export type StaffHomeworkReviewMode = "PENDING" | "ALL";
+
+export interface StaffHomeworkSubmissionGroup {
+  homeworkId: string;
+  title: string;
+  classroomId: string | null;
+  classroomName: string | null;
+  templateType: HomeworkTemplateType | "STANDARD";
+  status: "PUBLISHED" | "PAUSED" | "ARCHIVED" | string;
+  publishedAt: string;
+  assignedStudentCount: number;
+  submittedOccurrenceCount: number;
+  pendingReviewCount: number;
+  reviewedOccurrenceCount: number;
+  submittedQuestionCount: number;
+  reviewedQuestionCount: number;
+  latestSubmittedAt: string | null;
+}
+
+export interface StaffHomeworkSubmissionGroupListResponse {
+  groups: StaffHomeworkSubmissionGroup[];
+  pagination: { page: number; pageSize: number; total: number };
+}
+
+export interface StaffHomeworkSubmissionQuestion {
+  sourceKind: "CARD" | "ITEM";
+  questionId: string;
+  submissionId: string | null;
+  position: number;
+  promptText: string | null;
+  referenceText: string | null;
+  imageUrl: string | null;
+  sampleAudioUrl: string | null;
+  answerText: string | null;
+  choices: string[] | null;
+  submissionType: "RECORDING" | "ANSWER" | null;
+  audioUrl: string | null;
+  submittedAnswerText: string | null;
+  isCorrect: boolean | null;
+  attemptNumber: number | null;
+  submittedAt: string | null;
+  feedbackAudioUrl: string | null;
+  grade: string | null;
+  reviewedAt: string | null;
+  assessment: SpeechAssessment | null;
+  reviewStatus: "UNSUBMITTED" | "PENDING_REVIEW" | "REVIEWED";
+}
+
+export interface StaffHomeworkSubmissionDetail extends StaffHomeworkSubmissionConversation {
+  questions: StaffHomeworkSubmissionQuestion[];
+}
+
+export interface StaffHomeworkSubmissionListResponse {
+  conversations: StaffHomeworkSubmissionConversation[];
+  filters: {
+    students: Array<{ id: string; displayName: string }>;
+    homeworks: Array<{ id: string; title: string }>;
+  };
+  pagination: { page: number; pageSize: number; total: number };
 }
 
 export const homeworkTemplateTypes = [
@@ -192,7 +277,7 @@ export interface PracticeItem {
   isCorrect: boolean | null;
   attemptNumber: number | null;
   feedbackAudioUrl: string | null;
-  grade: "A" | "B" | "C" | "D" | null;
+  grade: string | null;
   reviewedAt: string | null;
   assessment: SpeechAssessment | null;
   status: "UNMADE" | "DONE" | "GRADED" | "CORRECT" | "INCORRECT";
@@ -214,6 +299,19 @@ export interface HomeworkPublishItem {
   sampleAudioUrl?: string;
   answerText?: string;
   choices?: string[];
+}
+
+export interface HomeworkPublishSchedule {
+  startsAt: string;
+  unit: "DAY" | "WEEK";
+  interval: number;
+  occurrenceLimit: number;
+}
+
+export interface HomeworkPublishCard {
+  imageUrl: string;
+  sampleAudioUrl: string;
+  referenceText: string;
 }
 
 export interface LearningStatsSummary {
@@ -328,6 +426,7 @@ export interface StaffClassroom {
 
 export interface StaffHomeworkSummary {
   id: string;
+  templateId: string | null;
   publisherId: string;
   publisherName: string;
   classroomId: string | null;
@@ -352,10 +451,115 @@ export interface StaffHomeworkHistoryResponse {
   pagination: { page: number; pageSize: number; total: number };
 }
 
+export interface StaffPublishedHomeworkQuestion {
+  sourceKind: "CARD" | "ITEM";
+  id: string;
+  position: number;
+  promptText: string | null;
+  referenceText: string | null;
+  imageUrl: string | null;
+  sampleAudioUrl: string | null;
+  answerText: string | null;
+  choices: string[] | null;
+}
+
+export interface StaffPublishedHomeworkDetailResponse {
+  homework: StaffHomeworkSummary;
+  recipients: Array<{ id: string; displayName: string; phone: string }>;
+  questions: StaffPublishedHomeworkQuestion[];
+}
+
+export interface StaffHomeworkTemplateSummary {
+  id: string;
+  creatorId: string;
+  creatorName: string;
+  title: string;
+  instructions: string | null;
+  templateType: HomeworkTemplateType | "STANDARD";
+  questionCount: number;
+  createdAt: string;
+  updatedAt: string;
+  lastPublishedAt: string | null;
+  publishedHomeworkCount: number;
+}
+
+export interface StaffHomeworkTemplateListResponse {
+  templates: StaffHomeworkTemplateSummary[];
+  pagination: { page: number; pageSize: number; total: number };
+}
+
+export interface StaffHomeworkTemplateDetailResponse {
+  template: StaffHomeworkTemplateSummary;
+  questions: StaffPublishedHomeworkQuestion[];
+}
+
+export type StaffHomeworkTemplateCreateInput =
+  | {
+      templateType: "READ_ALOUD_PICTURE_BOOK";
+      title: string;
+      instructions: string;
+      cards: HomeworkPublishCard[];
+    }
+  | {
+      templateType: Exclude<HomeworkTemplateType, "READ_ALOUD_PICTURE_BOOK">;
+      title: string;
+      instructions: string;
+      items: HomeworkPublishItem[];
+    };
+
+export type StaffHomeworkCycleStudentStatus = "CHECKED_IN" | "IN_PROGRESS" | "NOT_STARTED";
+
+export interface StaffHomeworkLatestCycleResponse {
+  homework: StaffHomeworkSummary;
+  cycle: null | {
+    sequenceNumber: number;
+    scheduledAt: string;
+    studentCount: number;
+    checkedInCount: number;
+    inProgressCount: number;
+    notStartedCount: number;
+    students: Array<{
+      occurrenceId: string;
+      studentId: string;
+      studentName: string;
+      occurrenceStatus: string;
+      status: StaffHomeworkCycleStudentStatus;
+      submittedCount: number;
+      totalCount: number;
+      lastSubmittedAt: string | null;
+    }>;
+  };
+}
+
 export interface MobileUploadFile {
   uri: string;
   type: string;
   name: string;
+}
+
+function isMobileUploadFile(file: Blob | MobileUploadFile): file is MobileUploadFile {
+  return "uri" in file && typeof file.uri === "string";
+}
+
+async function appendUploadFile(
+  formData: FormData,
+  fieldName: string,
+  file: Blob | MobileUploadFile,
+  fallbackName: string,
+) {
+  if (!isMobileUploadFile(file)) {
+    formData.append(fieldName, file, fallbackName);
+    return;
+  }
+
+  if (Platform.OS === "web") {
+    const response = await fetch(file.uri);
+    const blob = await response.blob();
+    formData.append(fieldName, blob, file.name);
+    return;
+  }
+
+  formData.append(fieldName, new File(file.uri), file.name);
 }
 
 export function getReadingHomeworks(token: string) {
@@ -391,8 +595,8 @@ export async function submitReadingAudio(
 ) {
   const formData = new FormData();
   if (durationSeconds) formData.append("durationSeconds", String(durationSeconds));
-  formData.append("audio", audio as Blob, "reading.m4a");
-  const response = await fetch(`${apiBaseUrl}/api/student/reading-homeworks/${occurrenceId}/cards/${cardId}/submissions`, {
+  await appendUploadFile(formData, "audio", audio, "reading.m4a");
+  const response = await expoFetch(`${apiBaseUrl}/api/student/reading-homeworks/${occurrenceId}/cards/${cardId}/submissions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -413,8 +617,8 @@ export async function submitPracticeRecording(
 ) {
   const formData = new FormData();
   if (durationSeconds) formData.append("durationSeconds", String(durationSeconds));
-  formData.append("audio", audio as Blob, "practice.m4a");
-  const response = await fetch(`${apiBaseUrl}/api/student/practice-homeworks/${occurrenceId}/items/${itemId}/recordings`, {
+  await appendUploadFile(formData, "audio", audio, "practice.m4a");
+  const response = await expoFetch(`${apiBaseUrl}/api/student/practice-homeworks/${occurrenceId}/items/${itemId}/recordings`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -493,8 +697,8 @@ async function uploadStaffAsset(
 ) {
   const formData = new FormData();
   if (purpose) formData.append("purpose", purpose);
-  formData.append("file", file as Blob, "upload.bin");
-  const response = await fetch(`${apiBaseUrl}/api/admin/uploads`, {
+  await appendUploadFile(formData, "file", file, "upload.bin");
+  const response = await expoFetch(`${apiBaseUrl}/api/admin/uploads`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -518,6 +722,87 @@ export function getTeacherPracticeRecordingSubmissions(token: string) {
   });
 }
 
+export function getStaffHomeworkSubmissionGroups(
+  token: string,
+  filters: {
+    page?: number;
+    pageSize?: number;
+    reviewMode?: StaffHomeworkReviewMode;
+    studentSearch?: string;
+  } = {},
+) {
+  const search = new URLSearchParams();
+  search.set("page", String(filters.page ?? 1));
+  search.set("pageSize", String(filters.pageSize ?? 50));
+  search.set("reviewMode", filters.reviewMode ?? "PENDING");
+  if (filters.studentSearch) search.set("studentSearch", filters.studentSearch);
+  return request<StaffHomeworkSubmissionGroupListResponse>(
+    `/api/admin/homework-submission-groups?${search.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+}
+
+export function getStaffHomeworkSubmissionConversations(
+  token: string,
+  filters: {
+    studentId?: string;
+    homeworkId?: string;
+    submittedFrom?: string;
+    submittedTo?: string;
+    reviewMode?: StaffHomeworkReviewMode;
+    studentSearch?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+) {
+  const search = new URLSearchParams();
+  search.set("page", String(filters.page ?? 1));
+  search.set("pageSize", String(filters.pageSize ?? 50));
+  if (filters.studentId) search.set("studentId", filters.studentId);
+  if (filters.homeworkId) search.set("homeworkId", filters.homeworkId);
+  if (filters.submittedFrom) search.set("submittedFrom", filters.submittedFrom);
+  if (filters.submittedTo) search.set("submittedTo", filters.submittedTo);
+  if (filters.reviewMode) search.set("reviewMode", filters.reviewMode);
+  if (filters.studentSearch) search.set("studentSearch", filters.studentSearch);
+  return request<StaffHomeworkSubmissionListResponse>(`/api/admin/homework-submissions?${search.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function getStaffHomeworkSubmissionDetail(token: string, occurrenceId: string) {
+  return request<{ conversation: StaffHomeworkSubmissionDetail }>(
+    `/api/admin/homework-submissions/${encodeURIComponent(occurrenceId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+}
+
+export async function reviewStaffHomeworkSubmission(
+  token: string,
+  input: {
+    occurrenceId: string;
+    sourceKind: "CARD" | "ITEM";
+    submissionId: string;
+    grade: StaffReviewGrade;
+    audio: Blob | MobileUploadFile | null;
+  },
+) {
+  const uploaded = input.audio ? await uploadStaffAsset(token, input.audio, "FEEDBACK") : null;
+  if (uploaded && (uploaded.kind !== "audio" || uploaded.purpose !== "FEEDBACK")) {
+    throw new ApiError("点评必须通过私有音频通道上传", "AUDIO_REQUIRED");
+  }
+  const path = [input.occurrenceId, input.sourceKind, input.submissionId]
+    .map(encodeURIComponent)
+    .join("/");
+  return request<{ conversation: StaffHomeworkSubmissionDetail }>(
+    `/api/admin/homework-submissions/${path}/review`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ grade: input.grade, feedbackAudioUrl: uploaded?.url }),
+    },
+  );
+}
+
 export function getStaffContext(token: string) {
   return request<StaffContext>("/api/admin/context", {
     headers: { Authorization: `Bearer ${token}` },
@@ -530,7 +815,13 @@ export function getStaffClassrooms(token: string) {
   });
 }
 
-export function createStaffClassroom(token: string, input: { name: string; teacherIds: string[]; studentIds: string[] }) {
+export function getStaffClassroomStudentCandidates(token: string) {
+  return request<{ students: StaffStudent[] }>("/api/admin/classroom-student-candidates", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function createStaffClassroom(token: string, input: { name: string; teacherIds?: string[]; studentIds: string[] }) {
   return request<{ classroom: StaffClassroom }>("/api/admin/classrooms", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
@@ -550,10 +841,77 @@ export function updateStaffClassroom(
   });
 }
 
-export function getStaffHomeworkHistory(token: string, page = 1, pageSize = 20) {
-  return request<StaffHomeworkHistoryResponse>(`/api/admin/homeworks?page=${page}&pageSize=${pageSize}`, {
+export function getStaffHomeworkHistory(
+  token: string,
+  page = 1,
+  pageSize = 20,
+  filters: { search?: string; status?: string; classroomId?: string } = {},
+) {
+  const search = new URLSearchParams();
+  search.set("page", String(page));
+  search.set("pageSize", String(pageSize));
+  if (filters.search) search.set("search", filters.search);
+  if (filters.status) search.set("status", filters.status);
+  if (filters.classroomId) search.set("classroomId", filters.classroomId);
+  return request<StaffHomeworkHistoryResponse>(`/api/admin/homeworks?${search.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+}
+
+export function getStaffHomeworkTemplates(
+  token: string,
+  page = 1,
+  pageSize = 50,
+  filters: { search?: string; templateType?: HomeworkTemplateType | "STANDARD" } = {},
+) {
+  const search = new URLSearchParams();
+  search.set("page", String(page));
+  search.set("pageSize", String(pageSize));
+  if (filters.search) search.set("search", filters.search);
+  if (filters.templateType) search.set("templateType", filters.templateType);
+  return request<StaffHomeworkTemplateListResponse>(
+    `/api/admin/homework-templates?${search.toString()}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+}
+
+export function getStaffHomeworkTemplateDetail(token: string, templateId: string) {
+  return request<StaffHomeworkTemplateDetailResponse>(
+    `/api/admin/homework-templates/${encodeURIComponent(templateId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+}
+
+export function createStaffHomeworkTemplate(token: string, input: StaffHomeworkTemplateCreateInput) {
+  return request<StaffHomeworkTemplateDetailResponse>("/api/admin/homework-templates", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteStaffHomeworkTemplate(token: string, templateId: string) {
+  return request<{ ok: boolean }>(
+    `/api/admin/homework-templates/${encodeURIComponent(templateId)}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+}
+
+export function getStaffPublishedHomeworkDetail(token: string, homeworkId: string) {
+  return request<StaffPublishedHomeworkDetailResponse>(
+    `/api/admin/homeworks/${encodeURIComponent(homeworkId)}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+}
+
+export function getStaffHomeworkLatestCycle(token: string, homeworkId: string) {
+  return request<StaffHomeworkLatestCycleResponse>(
+    `/api/admin/homeworks/${encodeURIComponent(homeworkId)}/latest-cycle`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
 }
 
 export function updateStaffHomeworkStatus(
@@ -571,7 +929,7 @@ export function updateStaffHomeworkStatus(
 export async function reviewReadingSubmission(
   token: string,
   submissionId: string,
-  grade: "A" | "B" | "C" | "D",
+  grade: StaffReviewGrade,
   audio: Blob | { uri: string; type: string; name: string } | null,
 ) {
   const uploaded = audio ? await uploadStaffAsset(token, audio, "FEEDBACK") : null;
@@ -587,7 +945,7 @@ export async function reviewReadingSubmission(
 export async function reviewPracticeRecordingSubmission(
   token: string,
   submissionId: string,
-  grade: "A" | "B" | "C" | "D",
+  grade: StaffReviewGrade,
   audio: Blob | MobileUploadFile | null,
 ) {
   const uploaded = audio ? await uploadStaffAsset(token, audio, "FEEDBACK") : null;
@@ -631,11 +989,12 @@ export async function uploadHomeworkAsset(token: string, file: Blob | MobileUplo
 
 export function publishPictureBookHomework(token: string, input: {
   classroomId: string | null;
+  templateId?: string;
   title: string;
   instructions: string;
   studentIds: string[];
-  schedule: { startsAt: string; unit: "DAY" | "WEEK"; interval: number; occurrenceLimit: number };
-  cards: Array<{ imageUrl: string; sampleAudioUrl: string; referenceText: string }>;
+  schedule: HomeworkPublishSchedule;
+  cards: HomeworkPublishCard[];
 }) {
   return request<{ homework: { targetCount: number; occurrenceCount: number } }>("/api/admin/homeworks", {
     method: "POST",
@@ -648,11 +1007,25 @@ export function publishPictureBookHomework(token: string, input: {
 export function publishHomeworkTemplate(token: string, input: {
   classroomId: string | null;
   templateType: Exclude<HomeworkTemplateType, "READ_ALOUD_PICTURE_BOOK">;
+  templateId?: string;
   title: string;
   instructions: string;
   studentIds: string[];
-  schedule: { startsAt: string; unit: "DAY" | "WEEK"; interval: number; occurrenceLimit: number };
+  schedule: HomeworkPublishSchedule;
   items: HomeworkPublishItem[];
+}) {
+  return request<{ homework: { targetCount: number; occurrenceCount: number } }>("/api/admin/homeworks", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+}
+
+export function publishHomeworkFromTemplate(token: string, input: {
+  classroomId: string | null;
+  templateId: string;
+  studentIds: string[];
+  schedule: HomeworkPublishSchedule;
 }) {
   return request<{ homework: { targetCount: number; occurrenceCount: number } }>("/api/admin/homeworks", {
     method: "POST",

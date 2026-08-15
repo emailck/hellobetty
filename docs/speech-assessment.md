@@ -2,7 +2,7 @@
 
 ## Scope
 
-Hello Betty will assess submitted picture-book, sentence, and word recordings after the student upload succeeds. Assessment is asynchronous and provider-neutral. Students may submit another attempt at any time, and staff retain the final A-D grade and optional voice feedback authority.
+Hello Betty will assess submitted picture-book, sentence, and word recordings after the student upload succeeds. Assessment is asynchronous and provider-neutral. Students may submit another attempt at any time, and staff retain the final `SSS`, `SS`, `S`, `A`, or `B` grade and optional voice feedback authority.
 
 This increment does not select or integrate a commercial assessment provider. A configured provider processes queued work; without one, submissions remain usable and their assessment jobs remain durably queued.
 
