@@ -1,0 +1,21 @@
+[Unit]
+Description=Hello Betty mobile web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/hellobetty/current/apps/mobile/dist-web-prod
+ExecStart=/usr/bin/python3 -m http.server 23843 --bind 127.0.0.1 --directory /opt/hellobetty/current/apps/mobile/dist-web-prod
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
+

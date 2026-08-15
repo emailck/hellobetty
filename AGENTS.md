@@ -37,5 +37,6 @@
 
 ## Child DOX Index
 - `apps/`: user-facing clients. See `apps/AGENTS.md`.
+- `deploy/`: production service and reverse-proxy templates. See `deploy/AGENTS.md`.
 - `services/`: backend services and persistence. See `services/AGENTS.md`.
 - `docs/`: durable product and architecture decisions. See `docs/AGENTS.md`.

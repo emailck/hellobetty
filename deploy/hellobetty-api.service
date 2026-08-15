@@ -1,0 +1,22 @@
+[Unit]
+Description=Hello Betty API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/hellobetty/current/services/api
+EnvironmentFile=/opt/hellobetty/shared/api.env
+ExecStart=/usr/bin/node dist/src/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/hellobetty/shared/data
+
+[Install]
+WantedBy=multi-user.target

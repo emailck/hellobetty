@@ -1,0 +1,13 @@
+betty.oai-gpt.com {
+	encode gzip zstd
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+	}
+
+	@backend path /api/* /uploads/* /health
+	reverse_proxy @backend 127.0.0.1:23841
+	reverse_proxy 127.0.0.1:23843
+}
+

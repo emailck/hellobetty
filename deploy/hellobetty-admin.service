@@ -1,0 +1,23 @@
+[Unit]
+Description=Hello Betty admin console
+After=network-online.target hellobetty-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/hellobetty/current
+Environment=NODE_ENV=production
+Environment=API_BASE_URL=http://127.0.0.1:23841
+ExecStart=/usr/bin/npm run start -w @hellobetty/admin -- --hostname 127.0.0.1 --port 23842
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
+
