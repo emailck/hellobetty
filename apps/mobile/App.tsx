@@ -508,34 +508,36 @@ function AuthScreen({
       behavior={Platform.select({ ios: "padding", default: undefined })}
     >
       <ScrollView contentContainerStyle={[styles.content, styles.authContent]} keyboardShouldPersistTaps="handled">
-        <Text style={styles.brand}>Hello Betty · 英语练习</Text>
-        <Text style={styles.title}>{mode === "login" ? "欢迎回来" : "开始你的练习"}</Text>
-        <Text style={styles.subtitle}>
-          {mode === "login" ? "登录后继续完成今天的英语练习。" : "先创建学习账号，之后老师会为你安排练习。"}
-        </Text>
-        <View style={styles.modeSwitch}>
-          {(["login", "register"] as const).map((item) => (
-            <Pressable
-              key={item}
-              style={[styles.modeButton, mode === item && styles.modeButtonActive]}
-              onPress={() => { setMode(item); setError(""); }}
-            >
-              <Text style={[styles.modeText, mode === item && styles.modeTextActive]}>
-                {item === "login" ? "登录" : "注册"}
-              </Text>
-            </Pressable>
-          ))}
+        <View style={styles.authForm}>
+          <Text style={styles.brand}>Hello Betty · 英语练习</Text>
+          <Text style={styles.title}>{mode === "login" ? "欢迎回来" : "开始你的练习"}</Text>
+          <Text style={styles.subtitle}>
+            {mode === "login" ? "登录后继续完成今天的英语练习。" : "先创建学习账号，之后老师会为你安排练习。"}
+          </Text>
+          <View style={styles.modeSwitch}>
+            {(["login", "register"] as const).map((item) => (
+              <Pressable
+                key={item}
+                style={[styles.modeButton, mode === item && styles.modeButtonActive]}
+                onPress={() => { setMode(item); setError(""); }}
+              >
+                <Text style={[styles.modeText, mode === item && styles.modeTextActive]}>
+                  {item === "login" ? "登录" : "注册"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {mode === "register" ? <Field label="姓名或昵称" value={displayName} onChangeText={setDisplayName} placeholder="例如：Betty" /> : null}
+          <Field label="手机号" value={phone} onChangeText={setPhone} placeholder="请输入手机号" />
+          <Field label="密码" value={password} onChangeText={setPassword} placeholder="至少 8 位" secure />
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Text style={styles.note}>注册即表示已获得家长或监护人的同意。</Text>
+          <Pressable style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]} disabled={isSubmitting} onPress={submit}>
+            {isSubmitting ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryButtonText}>{mode === "login" ? "登录并继续" : "创建账号"}</Text>}
+          </Pressable>
+          {Platform.OS === "web" ? <Pressable accessibilityLabel="下载 hellobetty Android 安装包" style={({ pressed }) => [styles.downloadButton, pressed && styles.pressedState]} onPress={() => void Linking.openURL(androidDownloadUrl)}><Ionicons name="logo-android" color={colors.text} size={20} /><Text style={styles.downloadButtonText}>下载 Android 安装包</Text></Pressable> : null}
+          <Text style={styles.footer}>账号与练习进度仅用于支持你的英语学习。</Text>
         </View>
-        {mode === "register" ? <Field label="姓名或昵称" value={displayName} onChangeText={setDisplayName} placeholder="例如：Betty" /> : null}
-        <Field label="手机号" value={phone} onChangeText={setPhone} placeholder="请输入手机号" />
-        <Field label="密码" value={password} onChangeText={setPassword} placeholder="至少 8 位" secure />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        <Text style={styles.note}>注册即表示已获得家长或监护人的同意。</Text>
-        <Pressable style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]} disabled={isSubmitting} onPress={submit}>
-          {isSubmitting ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryButtonText}>{mode === "login" ? "登录并继续" : "创建账号"}</Text>}
-        </Pressable>
-        {Platform.OS === "web" ? <Pressable accessibilityLabel="下载 hellobetty Android 安装包" style={({ pressed }) => [styles.downloadButton, pressed && styles.pressedState]} onPress={() => void Linking.openURL(androidDownloadUrl)}><Ionicons name="logo-android" color={colors.text} size={20} /><Text style={styles.downloadButtonText}>下载 Android 安装包</Text></Pressable> : null}
-        <Text style={styles.footer}>账号与练习进度仅用于支持你的英语学习。</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );

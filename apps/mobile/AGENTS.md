@@ -10,6 +10,7 @@
 - Optimize for touch, short reading spans, and clear single-step actions.
 - Persist only the access token and minimal current-user data; never persist passwords.
 - Registration and login must remain usable when the keyboard is visible.
+- Authentication content stays centered and capped at 440 pixels on wide Web viewports while retaining the normal 20-pixel phone gutters.
 - The signed-out Web homepage exposes the current Android APK at `/downloads/hellobetty.apk`; native builds do not show this download action.
 - Native application identity uses display name `hellobetty` and Android application ID `com.hellobetty`.
 - Picture-book read-aloud assignments are live: reveal one card at a time, unlock the next card only after submission, and allow completed cards to be re-recorded.

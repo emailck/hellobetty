@@ -18,6 +18,7 @@ export const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingVertical: 28 },
   authContent: { justifyContent: "center", minHeight: "100%" },
+  authForm: { width: "100%", maxWidth: 440, alignSelf: "center" },
   brand: { fontSize: 14, color: colors.muted, marginBottom: 18 },
   title: { fontSize: 30, fontWeight: "700", color: colors.text, marginBottom: 8 },
   subtitle: { fontSize: 15, lineHeight: 23, color: colors.muted, marginBottom: 28 },
