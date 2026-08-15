@@ -14,6 +14,7 @@
 - Keep management workflows quiet, dense, and optimized for repeated operations.
 - Use `coco` as the visual reference: near-white surfaces, dark text, grey supporting text, light dividers, capsule inputs, and pale-blue primary accents.
 - Account secrets must never be stored or logged in plaintext.
+- Android release-signing material stays outside version control under `.secrets/` or another secure path; production APK builds must never use the debug keystore.
 - Staff authority must come from the current database account and classroom membership, not a role claim cached in a client or token.
 - Do not imply that placeholder homework data is backed by a finished homework service.
 - A published homework instance must retain its selected students and generated trigger occurrences so later submission and grading data has a stable owner.

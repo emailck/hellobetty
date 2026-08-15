@@ -1,4 +1,4 @@
-package com.anonymous.hellobetty
+package com.hellobetty
 
 import android.app.Application
 import android.content.res.Configuration

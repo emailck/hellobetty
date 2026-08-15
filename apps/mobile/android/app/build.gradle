@@ -3,6 +3,31 @@ apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesFile = rootProject.file('../../../.secrets/android/release-signing.properties')
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.withInputStream { releaseSigningProperties.load(it) }
+}
+def releaseSigningValue = { String environmentName, String propertyName ->
+    System.getenv(environmentName) ?: releaseSigningProperties.getProperty(propertyName)
+}
+def releaseStoreFileEnvironment = System.getenv('HELLOBETTY_RELEASE_STORE_FILE')
+def releaseStoreFileSetting = releaseStoreFileEnvironment ?: releaseSigningProperties.getProperty('storeFile')
+def releaseStoreFile = releaseStoreFileSetting ? new File(releaseStoreFileSetting) : null
+if (releaseStoreFile && !releaseStoreFile.isAbsolute()) {
+    def releaseStoreBase = releaseStoreFileEnvironment ? rootProject.projectDir : releaseSigningPropertiesFile.parentFile
+    releaseStoreFile = new File(releaseStoreBase, releaseStoreFileSetting)
+}
+def releaseStorePassword = releaseSigningValue('HELLOBETTY_RELEASE_STORE_PASSWORD', 'storePassword')
+def releaseKeyAlias = releaseSigningValue('HELLOBETTY_RELEASE_KEY_ALIAS', 'keyAlias')
+def releaseKeyPassword = releaseSigningValue('HELLOBETTY_RELEASE_KEY_PASSWORD', 'keyPassword')
+def releaseSigningConfigured = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword].every { it }
+gradle.taskGraph.whenReady { taskGraph ->
+    def releasePackagingTasks = [':app:assembleRelease', ':app:bundleRelease', ':app:packageRelease']
+    if (taskGraph.allTasks.any { it.path in releasePackagingTasks } && !releaseSigningConfigured) {
+        throw new GradleException('Release builds require the HELLOBETTY_RELEASE_* signing variables or .secrets/android/release-signing.properties')
+    }
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -87,9 +112,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.hellobetty'
+    namespace 'com.hellobetty'
     defaultConfig {
-        applicationId 'com.anonymous.hellobetty'
+        applicationId 'com.hellobetty'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -104,15 +129,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseSigningConfigured) {
+            release {
+                storeFile releaseStoreFile
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds

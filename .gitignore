@@ -7,6 +7,7 @@ coverage/
 *.log
 .env
 .env.local
+.secrets/
 services/api/prisma/*.db
 services/api/prisma/*.db-journal
 services/api/data/

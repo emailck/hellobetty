@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "Hello Betty",
-    "slug": "hello-betty",
+    "name": "hellobetty",
+    "slug": "hellobetty",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "ios": {
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Hello Betty 需要麦克风权限，帮助你完成英语跟读练习和老师语音点评。",
-        "NSPhotoLibraryUsageDescription": "Hello Betty 需要访问相册，让老师为绘本作业选择图片。"
+        "NSMicrophoneUsageDescription": "hellobetty 需要麦克风权限，帮助你完成英语跟读练习和老师语音点评。",
+        "NSPhotoLibraryUsageDescription": "hellobetty 需要访问相册，让老师为绘本作业选择图片。"
       }
     },
     "android": {
@@ -22,7 +22,7 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
-      "package": "com.anonymous.hellobetty"
+      "package": "com.hellobetty"
     },
     "plugins": [
       "expo-audio"

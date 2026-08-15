@@ -10,6 +10,8 @@
 - Optimize for touch, short reading spans, and clear single-step actions.
 - Persist only the access token and minimal current-user data; never persist passwords.
 - Registration and login must remain usable when the keyboard is visible.
+- The signed-out Web homepage exposes the current Android APK at `/downloads/hellobetty.apk`; native builds do not show this download action.
+- Native application identity uses display name `hellobetty` and Android application ID `com.hellobetty`.
 - Picture-book read-aloud assignments are live: reveal one card at a time, unlock the next card only after submission, and allow completed cards to be re-recorded.
 - Sentence and word read-aloud assignments use the same sequential recording lifecycle: unlock the next item after submission and allow a graded item to be re-recorded as a new current attempt.
 - Student read-aloud views show only completed or failed normalized speech-assessment results, keep queued and processing states visually silent, and poll the visible occurrence while an assessment is queued or processing; machine results never replace the staff grade.
@@ -44,6 +46,7 @@
 - Mobile publishing keeps one per-teacher local template draft with form data, first-start time, and durable app-local copies of selected or recorded assets. Selection and recording must update item previews immediately, support image replacement plus audio playback/replacement/re-recording, and must not upload until the teacher completes validation and confirms the final publication summary. Restore the draft when the teacher returns and clear its data and local assets only after successful publication.
 - The mobile staff review context shows normalized machine assessment status and scores alongside student audio while keeping SSS/SS/S/A/B grading and optional voice feedback as independent staff actions.
 - Student and staff speech-assessment polling uses a four-second no-overlap refresh and stops after five minutes for unchanged queued or processing assessment ID/status states; reopening a screen, seeing a new assessment ID, or seeing queued/processing status progress starts a new window.
+- Native JavaScript hot updates remain disabled until an Expo Updates project ID, update URL, runtime-version policy, and release credentials are explicitly configured.
 
 ## Work Guidance
 - Use Expo, React Native, and TypeScript with React Native Web for browser verification.

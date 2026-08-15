@@ -31,6 +31,25 @@ EXPO_PUBLIC_API_URL=https://betty.oai-gpt.com \
   npx expo export --platform web --output-dir dist-web-prod
 ```
 
+Build the Android release with the same public API URL and dedicated release-signing credentials. `apps/mobile/android/app/build.gradle` reads the four `HELLOBETTY_RELEASE_*` environment variables or the ignored root `.secrets/android/release-signing.properties` file with `storeFile`, `storePassword`, `keyAlias`, and `keyPassword` keys. A relative `storeFile` in that properties file resolves from `.secrets/android/`; use an absolute path for the environment variable.
+
+```bash
+cd android
+NODE_ENV=production \
+EXPO_PUBLIC_API_URL=https://betty.oai-gpt.com \
+  ./gradlew app:assembleRelease
+$ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
+  app/build/outputs/apk/release/app-release.apk
+cd ..
+mkdir -p dist-web-prod/downloads
+cp android/app/build/outputs/apk/release/app-release.apk \
+  dist-web-prod/downloads/hellobetty.apk
+```
+
+The signature check must report the dedicated `hellobetty` release certificate rather than `Android Debug`. The signed-out Web homepage links to `/downloads/hellobetty.apk`. Caddy marks that response as an attachment and requires caches to revalidate the fixed download URL. The APK display name is `hellobetty` and its Android application ID is `com.hellobetty`.
+
+Expo Updates is intentionally disabled in the current native release. Enabling JavaScript hot updates requires a configured Expo/EAS project ID, update URL, runtime-version policy, and release credentials; native dependency, permission, and application-ID changes still require a new APK.
+
 ## Activation
 
 Install the three `deploy/*.service` units in `/etc/systemd/system`, install `deploy/betty.caddy` in `/etc/caddy/conf.d`, and ensure the main Caddyfile imports `/etc/caddy/conf.d/*.caddy`. Validate before activation:
@@ -44,4 +63,3 @@ sudo systemctl reload caddy
 ```
 
 Switch releases atomically by replacing `/opt/hellobetty/current`, then restart the three Hello Betty units. Roll back by pointing `current` at the preceding release and restarting the same units. Never replace `/opt/hellobetty/shared` during a code rollout.
-

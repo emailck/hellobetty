@@ -11,6 +11,7 @@
 - Do not manually edit generated files unless an Android-specific requirement cannot be expressed through Expo configuration.
 - Regenerate this project through Expo after changing app configuration that affects native settings.
 - Release builds may use cleartext HTTP only for the emulator loopback hosts `127.0.0.1` and `localhost`; all other cleartext destinations remain blocked.
+- Release APK tasks require the dedicated `hellobetty` signing credentials from environment variables or the ignored root `.secrets/android/release-signing.properties`; debug signing is limited to debug builds.
 
 ## Work Guidance
 - Use `JAVA_HOME`, `ANDROID_HOME`, and `ANDROID_SDK_ROOT` only for the current build command when they are absent from the system environment.
@@ -20,6 +21,7 @@
 
 ## Verification
 - Run `npx expo run:android --port <port>` from `apps/mobile/`.
-- Confirm the app process with `adb shell pidof com.anonymous.hellobetty`.
+- Confirm the app process with `adb shell pidof com.hellobetty`.
+- Verify distributed APK signatures with Android SDK `apksigner verify --print-certs` and reject the Android debug certificate.
 
 ## Child DOX Index

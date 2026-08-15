@@ -48,6 +48,8 @@ export const styles = StyleSheet.create({
   passwordInput: { flex: 1, paddingRight: 70 },
   textAction: { position: "absolute", right: 18, paddingVertical: 8 },
   textActionLabel: { color: colors.muted, fontSize: 13, fontWeight: "600" },
+  downloadButton: { minHeight: 50, marginTop: 12, borderRadius: 25, borderWidth: 1, borderColor: colors.divider, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 16 },
+  downloadButtonText: { color: colors.text, fontSize: 15, fontWeight: "700" },
   note: { color: colors.faint, fontSize: 13, lineHeight: 20, marginTop: 2 },
   error: { color: colors.error, backgroundColor: colors.errorSurface, padding: 13, borderRadius: 12, marginBottom: 16, fontSize: 14 },
   primaryButton: { marginTop: 24, height: 56, borderRadius: 28, backgroundColor: colors.accent, justifyContent: "center", alignItems: "center" },

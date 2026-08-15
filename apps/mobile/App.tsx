@@ -5,6 +5,7 @@ import {
   AppState,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -110,6 +111,8 @@ import { colors, styles } from "./src/styles";
 import type { CurrentUser } from "./src/types";
 
 type AuthMode = "login" | "register";
+
+const androidDownloadUrl = "https://betty.oai-gpt.com/downloads/hellobetty.apk";
 type StudentView = "home" | "profile" | "reading" | "practice";
 type ProfileTab = "PROFILE" | "LEARNING" | "HISTORY";
 type HomeworkListStatus = "UNVIEWED" | "INCOMPLETE" | "COMPLETED" | "REVIEWED";
@@ -531,6 +534,7 @@ function AuthScreen({
         <Pressable style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]} disabled={isSubmitting} onPress={submit}>
           {isSubmitting ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryButtonText}>{mode === "login" ? "登录并继续" : "创建账号"}</Text>}
         </Pressable>
+        {Platform.OS === "web" ? <Pressable accessibilityLabel="下载 hellobetty Android 安装包" style={({ pressed }) => [styles.downloadButton, pressed && styles.pressedState]} onPress={() => void Linking.openURL(androidDownloadUrl)}><Ionicons name="logo-android" color={colors.text} size={20} /><Text style={styles.downloadButtonText}>下载 Android 安装包</Text></Pressable> : null}
         <Text style={styles.footer}>账号与练习进度仅用于支持你的英语学习。</Text>
       </ScrollView>
     </KeyboardAvoidingView>

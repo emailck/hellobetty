@@ -1,4 +1,4 @@
-package com.anonymous.hellobetty
+package com.hellobetty
 
 import android.os.Build
 import android.os.Bundle

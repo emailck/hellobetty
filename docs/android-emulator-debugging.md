@@ -32,7 +32,7 @@ $env:ANDROID_SERIAL = 'emulator-5554'
 & $adb -s $env:ANDROID_SERIAL get-state
 ```
 
-预期输出为 `device`。包名固定为 `com.anonymous.hellobetty`。
+预期输出为 `device`。包名固定为 `com.hellobetty`。旧版 `com.anonymous.hellobetty` 是不同应用，可在不再需要其本地数据后单独卸载。
 
 ## 推荐启动流程
 
@@ -105,6 +105,8 @@ npx expo run:android --port 8082
 
 如果调试客户端持续卡在 `Bundling 100%`，使用 release 构建绕过 Metro 下载。该模式没有 Fast Refresh，但适合确认最新界面和 API 行为：
 
+release 构建必须先按 `production-deployment.md` 配置专用签名环境变量或根目录下已忽略的 `.secrets/android/release-signing.properties`。
+
 ```powershell
 Set-Location 'D:\code\hellobetty\apps\mobile'
 
@@ -142,7 +144,7 @@ Get-CimInstance Win32_Process -Filter "ProcessId = $metroPid" |
 先查看应用日志：
 
 ```powershell
-$appPid = & $adb -s $env:ANDROID_SERIAL shell pidof com.anonymous.hellobetty
+$appPid = & $adb -s $env:ANDROID_SERIAL shell pidof com.hellobetty
 & $adb -s $env:ANDROID_SERIAL logcat -d --pid=$appPid -t 500 |
   Select-String -Pattern 'ProtocolException|Callback failure|Bundle'
 ```
@@ -183,7 +185,7 @@ release 安装可能清除本地登录态，这是正常现象；重新登录即
 启动结束后至少执行：
 
 ```powershell
-& $adb -s $env:ANDROID_SERIAL shell pidof com.anonymous.hellobetty
+& $adb -s $env:ANDROID_SERIAL shell pidof com.hellobetty
 & $adb -s $env:ANDROID_SERIAL reverse --list
 ```
 

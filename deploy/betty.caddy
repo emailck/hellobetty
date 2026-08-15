@@ -5,9 +5,12 @@ betty.oai-gpt.com {
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
 	}
+	header /downloads/hellobetty.apk {
+		Content-Disposition "attachment; filename=hellobetty.apk"
+		Cache-Control "no-cache"
+	}
 
 	@backend path /api/* /uploads/* /health
 	reverse_proxy @backend 127.0.0.1:23841
 	reverse_proxy 127.0.0.1:23843
 }
-
