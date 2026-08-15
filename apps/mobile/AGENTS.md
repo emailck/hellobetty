@@ -8,7 +8,7 @@
 
 ## Local Contracts
 - Optimize for touch, short reading spans, and clear single-step actions.
-- Persist only the access token and minimal current-user data; never persist passwords.
+- Persist only the access token, minimal current-user data, and the most recently authenticated phone number; never persist passwords. Restore a saved session across app restarts, retain it through transient startup validation failures, and clear it only when the server explicitly reports that authentication is no longer valid.
 - Registration and login must remain usable when the keyboard is visible.
 - Authentication content stays centered and capped at 440 pixels on wide Web viewports while retaining the normal 20-pixel phone gutters.
 - The signed-out Web homepage exposes the current Android APK at `/downloads/hellobetty.apk`; native builds do not show this download action.

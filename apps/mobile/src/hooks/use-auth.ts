@@ -1,29 +1,47 @@
 import { useEffect, useState } from "react";
-import { getCurrentUser, login, register } from "../lib/api";
-import { clearSession, loadSession, saveSession } from "../lib/session";
+import { ApiError, getCurrentUser, login, register } from "../lib/api";
+import { clearSession, loadLastLoginPhone, loadSession, saveLastLoginPhone, saveSession } from "../lib/session";
 import type { Session } from "../types";
 
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
+  const [lastLoginPhone, setLastLoginPhone] = useState("");
   const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
     void (async () => {
-      const saved = await loadSession();
-      if (saved) {
-        try {
-          const current = await getCurrentUser(saved.token);
-          setSession({ token: saved.token, user: current.user });
-        } catch {
-          await clearSession();
+      try {
+        const [saved, rememberedPhone] = await Promise.all([
+          loadSession().catch(() => null),
+          loadLastLoginPhone().catch(() => null),
+        ]);
+        const phone = rememberedPhone ?? saved?.user.phone ?? "";
+        setLastLoginPhone(phone);
+        if (saved && !rememberedPhone && saved.user.phone) {
+          await saveLastLoginPhone(saved.user.phone).catch(() => undefined);
         }
+        if (saved) {
+          try {
+            const current = await getCurrentUser(saved.token);
+            setSession({ token: saved.token, user: current.user });
+          } catch (cause) {
+            if (cause instanceof ApiError && cause.code === "UNAUTHORIZED") {
+              await clearSession().catch(() => undefined);
+            } else {
+              setSession(saved);
+            }
+          }
+        }
+      } finally {
+        setIsRestoring(false);
       }
-      setIsRestoring(false);
     })();
   }, []);
 
   async function authenticate(nextSession: Session) {
     await saveSession(nextSession);
+    await saveLastLoginPhone(nextSession.user.phone).catch(() => undefined);
+    setLastLoginPhone(nextSession.user.phone);
     setSession(nextSession);
   }
 
@@ -36,6 +54,7 @@ export function useAuth() {
 
   return {
     session,
+    lastLoginPhone,
     isRestoring,
     updateCurrentUser,
     register: async (input: {

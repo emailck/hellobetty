@@ -460,9 +460,11 @@ function Field({
 }
 
 function AuthScreen({
+  initialPhone,
   onLogin,
   onRegister,
 }: {
+  initialPhone: string;
   onLogin: (phone: string, password: string) => Promise<void>;
   onRegister: (input: {
     phone: string;
@@ -471,7 +473,7 @@ function AuthScreen({
   }) => Promise<void>;
 }) {
   const [mode, setMode] = useState<AuthMode>("login");
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(initialPhone);
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -2804,7 +2806,7 @@ export default function App() {
     <SafeAreaProvider initialMetrics={Platform.OS === "web" ? webSafeAreaMetrics : undefined}>
       <SafeAreaView style={styles.screen}>
         <StatusBar style="dark" />
-        {!auth.session ? <AuthScreen onLogin={auth.login} onRegister={auth.register} /> : auth.session.user.role !== "STUDENT" ? <TeacherReviewWorkspace token={auth.session.token} userId={auth.session.user.id} displayName={auth.session.user.displayName} role={auth.session.user.role} onLogout={auth.logout} /> : view === "home" ? <StudentHome displayName={auth.session.user.displayName} token={auth.session.token} onProfile={() => setView("profile")} onOpenReading={openReadingOccurrence} onOpenPractice={openPracticeOccurrence} /> : view === "reading" && readingOccurrenceId ? <ReadingChat key={readingOccurrenceId} token={auth.session.token} occurrenceId={readingOccurrenceId} onBack={() => setView("home")} onOpenReading={openReadingOccurrence} onOpenPractice={openPracticeOccurrence} /> : view === "practice" && practiceOccurrenceId ? <PracticeWorkspace key={practiceOccurrenceId} token={auth.session.token} occurrenceId={practiceOccurrenceId} onBack={() => setView("home")} onOpenReading={openReadingOccurrence} onOpenPractice={openPracticeOccurrence} /> : <Profile user={auth.session.user} token={auth.session.token} onBack={() => setView("home")} onLogout={auth.logout} onUserUpdate={auth.updateCurrentUser} />}
+        {!auth.session ? <AuthScreen initialPhone={auth.lastLoginPhone} onLogin={auth.login} onRegister={auth.register} /> : auth.session.user.role !== "STUDENT" ? <TeacherReviewWorkspace token={auth.session.token} userId={auth.session.user.id} displayName={auth.session.user.displayName} role={auth.session.user.role} onLogout={auth.logout} /> : view === "home" ? <StudentHome displayName={auth.session.user.displayName} token={auth.session.token} onProfile={() => setView("profile")} onOpenReading={openReadingOccurrence} onOpenPractice={openPracticeOccurrence} /> : view === "reading" && readingOccurrenceId ? <ReadingChat key={readingOccurrenceId} token={auth.session.token} occurrenceId={readingOccurrenceId} onBack={() => setView("home")} onOpenReading={openReadingOccurrence} onOpenPractice={openPracticeOccurrence} /> : view === "practice" && practiceOccurrenceId ? <PracticeWorkspace key={practiceOccurrenceId} token={auth.session.token} occurrenceId={practiceOccurrenceId} onBack={() => setView("home")} onOpenReading={openReadingOccurrence} onOpenPractice={openPracticeOccurrence} /> : <Profile user={auth.session.user} token={auth.session.token} onBack={() => setView("home")} onLogout={auth.logout} onUserUpdate={auth.updateCurrentUser} />}
       </SafeAreaView>
     </SafeAreaProvider>
   );
