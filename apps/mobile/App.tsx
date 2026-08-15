@@ -509,6 +509,7 @@ function AuthScreen({
       style={styles.screen}
       behavior={Platform.select({ ios: "padding", default: undefined })}
     >
+      {Platform.OS === "web" ? <Pressable accessibilityRole="link" accessibilityLabel="下载 hellobetty Android 安装包" style={({ pressed }) => [styles.downloadButton, pressed && styles.pressedState]} onPress={() => void Linking.openURL(androidDownloadUrl)}><Ionicons name="logo-android" color={colors.text} size={19} /><Text style={styles.downloadButtonText}>下载 APK</Text></Pressable> : null}
       <ScrollView contentContainerStyle={[styles.content, styles.authContent]} keyboardShouldPersistTaps="handled">
         <View style={styles.authForm}>
           <Text style={styles.brand}>Hello Betty · 英语练习</Text>
@@ -537,7 +538,6 @@ function AuthScreen({
           <Pressable style={[styles.primaryButton, isSubmitting && styles.primaryButtonDisabled]} disabled={isSubmitting} onPress={submit}>
             {isSubmitting ? <ActivityIndicator color={colors.text} /> : <Text style={styles.primaryButtonText}>{mode === "login" ? "登录并继续" : "创建账号"}</Text>}
           </Pressable>
-          {Platform.OS === "web" ? <Pressable accessibilityLabel="下载 hellobetty Android 安装包" style={({ pressed }) => [styles.downloadButton, pressed && styles.pressedState]} onPress={() => void Linking.openURL(androidDownloadUrl)}><Ionicons name="logo-android" color={colors.text} size={20} /><Text style={styles.downloadButtonText}>下载 Android 安装包</Text></Pressable> : null}
           <Text style={styles.footer}>账号与练习进度仅用于支持你的英语学习。</Text>
         </View>
       </ScrollView>
